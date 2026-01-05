@@ -1,4 +1,4 @@
-package hsocks
+package msocks
 
 import (
 	"bytes"
@@ -14,9 +14,9 @@ type logger struct {
 	file   *os.File
 }
 
-func newLogger(writer io.Writer, path string) (*logger, error) {
+func newLogger(path string) (*logger, error) {
 	if path == "" {
-		lg := log.New(writer, "", log.LstdFlags)
+		lg := log.New(os.Stdout, "", log.LstdFlags)
 		return &logger{logger: lg}, nil
 	}
 	dir := filepath.Dir(path)
@@ -30,7 +30,7 @@ func newLogger(writer io.Writer, path string) (*logger, error) {
 	if err != nil {
 		return nil, err
 	}
-	lg := log.New(io.MultiWriter(file, writer), "", log.LstdFlags)
+	lg := log.New(io.MultiWriter(file, os.Stdout), "", log.LstdFlags)
 	return &logger{logger: lg, file: file}, nil
 }
 
@@ -93,14 +93,14 @@ func (l *logger) Fatalf(fn, format string, v ...interface{}) {
 }
 
 func (l *logger) Close() error {
+	var err error
 	if l.file != nil {
-		err := l.file.Close()
+		err = l.file.Close()
 		if err != nil {
 			l.logger.SetOutput(os.Stderr)
 			l.Error("failed to close log file:", err)
-			return err
 		}
 	}
 	l.logger.SetOutput(io.Discard)
-	return nil
+	return err
 }
