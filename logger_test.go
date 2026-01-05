@@ -9,14 +9,16 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+const testLogFile = "testdata/test.log"
+
 func TestLogger(t *testing.T) {
 	t.Run("common", func(t *testing.T) {
 		defer func() {
-			err := os.Remove("testdata/test.log")
+			err := os.Remove(testLogFile)
 			require.NoError(t, err)
 		}()
 
-		lg, err := newLogger("testdata/test.log")
+		lg, err := newLogger(testLogFile)
 		require.NoError(t, err)
 
 		lg.Info("info log")
@@ -62,7 +64,7 @@ func TestLogger(t *testing.T) {
 		pg := monkey.Patch(os.MkdirAll, patch)
 		defer pg.Unpatch()
 
-		lg, err := newLogger("testdata/test.log")
+		lg, err := newLogger(testLogFile)
 		require.EqualError(t, err, "monkey error")
 		require.Nil(t, lg)
 	})
@@ -74,12 +76,17 @@ func TestLogger(t *testing.T) {
 		pg := monkey.Patch(os.OpenFile, patch)
 		defer pg.Unpatch()
 
-		lg, err := newLogger("testdata/test.log")
+		lg, err := newLogger(testLogFile)
 		require.EqualError(t, err, "monkey error")
 		require.Nil(t, lg)
 	})
 
 	t.Run("failed to close file", func(t *testing.T) {
+		defer func() {
+			err := os.Remove(testLogFile)
+			require.NoError(t, err)
+		}()
+
 		var file *os.File
 		patch := func() error {
 			return errors.New("monkey error")
@@ -87,10 +94,14 @@ func TestLogger(t *testing.T) {
 		pg := monkey.PatchMethod(file, "Close", patch)
 		defer pg.Unpatch()
 
-		lg, err := newLogger("testdata/test.log")
+		lg, err := newLogger(testLogFile)
 		require.NoError(t, err)
 
 		err = lg.Close()
 		require.EqualError(t, err, "monkey error")
+
+		pg.Unpatch()
+		err = lg.Close()
+		require.NoError(t, err)
 	})
 }
