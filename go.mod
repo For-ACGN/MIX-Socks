@@ -1,12 +1,12 @@
-module github.com/For-ACGN/https-socks
+module github.com/For-ACGN/MIX-Socks
 
-go 1.20
+go 1.25.0
 
 require (
-	github.com/agiledragon/gomonkey/v2 v2.9.0
-	github.com/pelletier/go-toml/v2 v2.0.7
+	github.com/For-ACGN/monkey v1.0.2
+	github.com/pelletier/go-toml/v2 v2.2.4
 	github.com/pkg/errors v0.9.1
-	github.com/stretchr/testify v1.8.2
+	github.com/stretchr/testify v1.11.1
 )
 
 require (
