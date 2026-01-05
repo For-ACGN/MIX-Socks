@@ -1,4 +1,4 @@
-package hsocks
+package msocks
 
 import (
 	"crypto/x509"

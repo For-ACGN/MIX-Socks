@@ -1,4 +1,4 @@
-package hsocks
+package msocks
 
 import (
 	"testing"
