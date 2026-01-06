@@ -1,12 +1,21 @@
 package msocks
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"testing"
 	"time"
 
 	"github.com/pelletier/go-toml/v2"
 	"github.com/stretchr/testify/require"
 )
+
+var testPassHash string
+
+func init() {
+	h := sha256.Sum256([]byte("test"))
+	testPassHash = hex.EncodeToString(h[:])
+}
 
 type testDuration struct {
 	Timeout duration `toml:"timeout"`
