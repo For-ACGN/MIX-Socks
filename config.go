@@ -11,16 +11,24 @@ type ServerConfig struct {
 		LogPath  string `toml:"log_path"`
 	} `toml:"common"`
 
-	Server struct {
+	HTTP struct {
 		Network  string   `toml:"network"`
 		Address  string   `toml:"address"`
 		MaxConns int      `toml:"max_conns"`
 		Timeout  duration `toml:"timeout"`
-	} `toml:"server"`
+	} `toml:"http"`
 
 	TLS struct {
-		ServerCert string `toml:"server_cert"`
-		ServerKey  string `toml:"server_key"`
+		Mode string `toml:"mode"`
+
+		ACME struct {
+			Domains []string `toml:"domains"`
+		} `toml:"acme"`
+
+		Static struct {
+			Cert string `toml:"cert_path"`
+			Key  string `toml:"key_path"`
+		} `toml:"static"`
 	} `toml:"tls"`
 }
 
