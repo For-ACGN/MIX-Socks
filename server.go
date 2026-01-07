@@ -2,7 +2,9 @@ package msocks
 
 import (
 	"context"
+	"crypto/rand"
 	"crypto/tls"
+	"encoding/hex"
 	"fmt"
 	"net"
 	"net/http"
@@ -10,6 +12,7 @@ import (
 
 	"github.com/For-ACGN/autocert"
 	"github.com/pkg/errors"
+	"golang.org/x/crypto/curve25519"
 	"golang.org/x/net/netutil"
 )
 
@@ -69,7 +72,7 @@ func NewServer(ctx context.Context, config *ServerConfig) (*Server, error) {
 	}
 	listener = netutil.LimitListener(listener, maxConns)
 	// create http server
-	mux := http.NewServeMux()
+	serverMux := http.NewServeMux()
 	timeout := time.Duration(config.HTTP.Timeout)
 	if timeout < time.Second {
 		timeout = defaultTimeout
@@ -79,15 +82,18 @@ func NewServer(ctx context.Context, config *ServerConfig) (*Server, error) {
 		ReadTimeout:       timeout,
 		WriteTimeout:      timeout,
 		IdleTimeout:       timeout,
-		Handler:           mux,
+		Handler:           serverMux,
 	}
 	server := Server{
 		logger:   logger,
 		listener: listener,
 		server:   &srv,
 	}
-	mux.HandleFunc("/", server.handleIndex)
-	mux.HandleFunc("/"+config.Common.PassHash, server.handleConn)
+	hash := config.Common.PassHash
+	serverMux.HandleFunc("/", server.handleIndex)
+	serverMux.HandleFunc(fmt.Sprintf("/%s/login", hash), server.handleLogin)
+	serverMux.HandleFunc(fmt.Sprintf("/%s/logout", hash), server.handleLogout)
+	serverMux.HandleFunc(fmt.Sprintf("/%s/connect", hash), server.handleConn)
 	return &server, nil
 }
 
@@ -95,6 +101,16 @@ func (s *Server) handleIndex(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusOK)
 	_, _ = w.Write([]byte("hello: "))
 	_, _ = w.Write([]byte(r.RemoteAddr))
+}
+
+func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusOK)
+	s.logger.Infof("user from %s is login", r.RemoteAddr)
+}
+
+func (s *Server) handleLogout(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusOK)
+	s.logger.Infof("user from %s is logout", r.RemoteAddr)
 }
 
 func (s *Server) handleConn(w http.ResponseWriter, r *http.Request) {
@@ -109,6 +125,74 @@ func (s *Server) handleConn(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer func() { _ = conn.Close() }()
+
+	// clear deadline that server set
+	_ = conn.SetDeadline(time.Time{})
+
+	sessionKey, err := s.negotiate(conn, r)
+	if err != nil {
+		return
+	}
+
+	// start forward connection
+	header := r.Header
+	network := header.Get("Network")
+	address := header.Get("Address")
+
+	target, err := net.Dial(network, address)
+	if err != nil {
+
+	}
+
+	_ = sessionKey
+}
+
+func (s *Server) negotiate(conn net.Conn, r *http.Request) ([]byte, error) {
+	// get public key from client
+	clientPub, err := hex.DecodeString(r.Header.Get("Public-Key"))
+	if err != nil {
+		s.logger.Error("failed to decode public key from:", r.RemoteAddr)
+		return nil, err
+	}
+	if len(clientPub) != curve25519.ScalarSize {
+		s.logger.Error("failed to invalid public key from:", r.RemoteAddr)
+		return nil, err
+	}
+
+	// process key exchange
+	serverPri := make([]byte, curve25519.ScalarSize)
+	_, err = rand.Read(serverPri)
+	if err != nil {
+		s.logger.Errorf("failed to generate random data for key exchange: %s", err)
+		return nil, err
+	}
+	serverPub, err := curve25519.X25519(serverPri, curve25519.Basepoint)
+	if err != nil {
+		s.logger.Errorf("failed to x25519 with base point: %s, from: %s", err, r.RemoteAddr)
+		return nil, err
+	}
+	sessionKey, err := curve25519.X25519(serverPri, clientPub)
+	if err != nil {
+		s.logger.Errorf("failed to negotiate session key: %s, from: %s", err, r.RemoteAddr)
+		return nil, err
+	}
+
+	// write response
+	header := make(http.Header)
+	header.Set("Public-Key", hex.EncodeToString(serverPub))
+	resp := http.Response{}
+	resp.Status = "200 OK"
+	resp.StatusCode = http.StatusOK
+	resp.Proto = "HTTP/1.1"
+	resp.ProtoMajor = 1
+	resp.ProtoMinor = 1
+	resp.Header = header
+	err = resp.Write(conn)
+	if err != nil {
+		s.logger.Errorf("failed to write response to %s: %s", r.RemoteAddr, err)
+		return nil, err
+	}
+	return sessionKey, nil
 }
 
 // Serve is used to start http server.
