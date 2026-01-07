@@ -16,6 +16,7 @@ import (
 	"golang.org/x/net/netutil"
 )
 
+// TLS mode about how to configure the certificate source.
 const (
 	TLSModeACME   = "acme"
 	TLSModeStatic = "static"
@@ -49,6 +50,9 @@ func NewServer(ctx context.Context, config *ServerConfig) (*Server, error) {
 			Domains: config.TLS.ACME.Domains,
 		}
 		listener, err = autocert.ListenContext(ctx, network, address, &cfg)
+		if err != nil {
+			return nil, err
+		}
 	case TLSModeStatic:
 		kp := config.TLS.Static
 		cert, err := tls.LoadX509KeyPair(kp.Cert, kp.Key)
@@ -59,11 +63,11 @@ func NewServer(ctx context.Context, config *ServerConfig) (*Server, error) {
 			Certificates: []tls.Certificate{cert},
 		}
 		listener, err = tls.Listen(network, address, &cfg)
+		if err != nil {
+			return nil, err
+		}
 	default:
 		return nil, fmt.Errorf("unknown TLS mode: %s", config.TLS.Mode)
-	}
-	if err != nil {
-		return nil, err
 	}
 	// apply maximum connections
 	maxConns := config.HTTP.MaxConns
@@ -125,61 +129,28 @@ func (s *Server) handleConn(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer func() { _ = conn.Close() }()
-
 	// clear deadline that server set
 	_ = conn.SetDeadline(time.Time{})
 
-	sessionKey, err := s.negotiate(conn, r)
+	sessionKey, serverPub, err := s.negotiate(r)
 	if err != nil {
 		return
 	}
+	header := make(http.Header)
+	header.Set("Public-Key", hex.EncodeToString(serverPub))
 
-	// start forward connection
-	header := r.Header
-	network := header.Get("Network")
-	address := header.Get("Address")
-
+	// try to connect target
+	var success bool
+	network := r.Header.Get("Network")
+	address := r.Header.Get("Address")
 	target, err := net.Dial(network, address)
 	if err != nil {
-
-	}
-
-	_ = sessionKey
-}
-
-func (s *Server) negotiate(conn net.Conn, r *http.Request) ([]byte, error) {
-	// get public key from client
-	clientPub, err := hex.DecodeString(r.Header.Get("Public-Key"))
-	if err != nil {
-		s.logger.Error("failed to decode public key from:", r.RemoteAddr)
-		return nil, err
-	}
-	if len(clientPub) != curve25519.ScalarSize {
-		s.logger.Error("failed to invalid public key from:", r.RemoteAddr)
-		return nil, err
-	}
-
-	// process key exchange
-	serverPri := make([]byte, curve25519.ScalarSize)
-	_, err = rand.Read(serverPri)
-	if err != nil {
-		s.logger.Errorf("failed to generate random data for key exchange: %s", err)
-		return nil, err
-	}
-	serverPub, err := curve25519.X25519(serverPri, curve25519.Basepoint)
-	if err != nil {
-		s.logger.Errorf("failed to x25519 with base point: %s, from: %s", err, r.RemoteAddr)
-		return nil, err
-	}
-	sessionKey, err := curve25519.X25519(serverPri, clientPub)
-	if err != nil {
-		s.logger.Errorf("failed to negotiate session key: %s, from: %s", err, r.RemoteAddr)
-		return nil, err
+		header.Set("Connect-Error", err.Error())
+	} else {
+		success = true
 	}
 
 	// write response
-	header := make(http.Header)
-	header.Set("Public-Key", hex.EncodeToString(serverPub))
 	resp := http.Response{}
 	resp.Status = "200 OK"
 	resp.StatusCode = http.StatusOK
@@ -190,9 +161,47 @@ func (s *Server) negotiate(conn net.Conn, r *http.Request) ([]byte, error) {
 	err = resp.Write(conn)
 	if err != nil {
 		s.logger.Errorf("failed to write response to %s: %s", r.RemoteAddr, err)
-		return nil, err
+		return
 	}
-	return sessionKey, nil
+
+	if !success {
+		return
+	}
+
+	// start forward connection
+	_ = target.Close()
+	_ = sessionKey
+}
+
+func (s *Server) negotiate(r *http.Request) ([]byte, []byte, error) {
+	// get public key from client
+	clientPub, err := hex.DecodeString(r.Header.Get("Public-Key"))
+	if err != nil {
+		s.logger.Error("failed to decode public key from:", r.RemoteAddr)
+		return nil, nil, err
+	}
+	if len(clientPub) != curve25519.ScalarSize {
+		s.logger.Error("failed to invalid public key from:", r.RemoteAddr)
+		return nil, nil, err
+	}
+	// process key exchange
+	serverPri := make([]byte, curve25519.ScalarSize)
+	_, err = rand.Read(serverPri)
+	if err != nil {
+		s.logger.Errorf("failed to generate random data for key exchange: %s", err)
+		return nil, nil, err
+	}
+	serverPub, err := curve25519.X25519(serverPri, curve25519.Basepoint)
+	if err != nil {
+		s.logger.Errorf("failed to x25519 with base point: %s, from: %s", err, r.RemoteAddr)
+		return nil, nil, err
+	}
+	sessionKey, err := curve25519.X25519(serverPri, clientPub)
+	if err != nil {
+		s.logger.Errorf("failed to negotiate session key: %s, from: %s", err, r.RemoteAddr)
+		return nil, nil, err
+	}
+	return sessionKey, serverPub, nil
 }
 
 // Serve is used to start http server.
