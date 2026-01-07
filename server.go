@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/rand"
 	"crypto/tls"
+	"encoding/binary"
 	"encoding/hex"
 	"fmt"
 	"net"
@@ -129,15 +130,21 @@ func (s *Server) handleConn(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer func() { _ = conn.Close() }()
-	// clear deadline that server set
-	_ = conn.SetDeadline(time.Time{})
 
+	// negotiate session key
 	sessionKey, serverPub, err := s.negotiate(r)
 	if err != nil {
 		return
 	}
 	header := make(http.Header)
 	header.Set("Public-Key", hex.EncodeToString(serverPub))
+
+	// append garbage data
+	buf := make([]byte, 4)
+	_, _ = rand.Read(buf)
+	size := binary.BigEndian.Uint32(buf) % 512
+	garbage := make([]byte, size)
+	header.Set("Obfuscation", hex.EncodeToString(garbage))
 
 	// try to connect target
 	var success bool
@@ -163,12 +170,15 @@ func (s *Server) handleConn(w http.ResponseWriter, r *http.Request) {
 		s.logger.Errorf("failed to write response to %s: %s", r.RemoteAddr, err)
 		return
 	}
-
 	if !success {
 		return
 	}
 
 	// start forward connection
+
+	// clear deadline that server set
+	_ = conn.SetDeadline(time.Time{})
+
 	_ = target.Close()
 	_ = sessionKey
 }
@@ -181,7 +191,7 @@ func (s *Server) negotiate(r *http.Request) ([]byte, []byte, error) {
 		return nil, nil, err
 	}
 	if len(clientPub) != curve25519.ScalarSize {
-		s.logger.Error("failed to invalid public key from:", r.RemoteAddr)
+		s.logger.Error("receive invalid public key from:", r.RemoteAddr)
 		return nil, nil, err
 	}
 	// process key exchange
