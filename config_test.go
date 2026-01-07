@@ -3,6 +3,7 @@ package msocks
 import (
 	"crypto/sha256"
 	"encoding/hex"
+	"fmt"
 	"testing"
 	"time"
 
@@ -15,6 +16,7 @@ var testPassHash string
 func init() {
 	h := sha256.Sum256([]byte("test"))
 	testPassHash = hex.EncodeToString(h[:])
+	fmt.Println("pass hash:", testPassHash)
 }
 
 type testDuration struct {
