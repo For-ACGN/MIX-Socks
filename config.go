@@ -51,13 +51,12 @@ type ClientConfig struct {
 	} `toml:"server"`
 
 	Front struct {
-		Mode     string `toml:"mode"`
 		Network  string `toml:"network"`
 		Address  string `toml:"address"`
 		Username string `toml:"username"`
 		Password string `toml:"password"`
 	} `toml:"front"`
-}
+} // #nosec
 
 // duration is patch for toml v2.
 type duration time.Duration
