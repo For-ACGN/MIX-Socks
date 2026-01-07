@@ -2,8 +2,10 @@ package msocks
 
 import (
 	"context"
+	"net/http"
 	"os"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 )
@@ -15,9 +17,7 @@ func testRemoveServerLogFile(t *testing.T) {
 	require.NoError(t, err)
 }
 
-func TestNewServer(t *testing.T) {
-	defer testRemoveServerLogFile(t)
-
+func testBuildServerConfig() *ServerConfig {
 	config := ServerConfig{}
 	config.Common.LogPath = testServerLogFile
 	config.Common.PassHash = testPassHash
@@ -26,10 +26,35 @@ func TestNewServer(t *testing.T) {
 	config.TLS.Mode = TLSModeStatic
 	config.TLS.Static.Cert = "testdata/server_cert.pem"
 	config.TLS.Static.Key = "testdata/server_key.pem"
+	return &config
+}
 
-	server, err := NewServer(context.Background(), &config)
+func TestNewServer(t *testing.T) {
+	defer testRemoveServerLogFile(t)
+
+	config := testBuildServerConfig()
+	server, err := NewServer(context.Background(), config)
 	require.NoError(t, err)
 	require.NotNil(t, server)
+
+	err = server.Close()
+	require.NoError(t, err)
+}
+
+func TestServer_Serve(t *testing.T) {
+	defer testRemoveServerLogFile(t)
+
+	config := testBuildServerConfig()
+	server, err := NewServer(context.Background(), config)
+	require.NoError(t, err)
+	require.NotNil(t, server)
+
+	go func() {
+		err := server.Serve()
+		require.Equal(t, err, http.ErrServerClosed)
+	}()
+
+	time.Sleep(time.Second)
 
 	err = server.Close()
 	require.NoError(t, err)
