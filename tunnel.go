@@ -12,6 +12,8 @@ import (
 	"github.com/pkg/errors"
 )
 
+const maxObfSize = 2048
+
 type tunnel struct {
 	net.Conn
 
@@ -38,13 +40,13 @@ func newTunnel(conn net.Conn, key []byte) (*tunnel, error) {
 	if err != nil {
 		return nil, err
 	}
-	t := tunnel{
+	tun := tunnel{
 		Conn:  conn,
 		block: block,
 		key:   key,
 		iv:    iv,
 	}
-	return &t, nil
+	return &tun, nil
 }
 
 // +----------+----------+----------+
@@ -63,7 +65,7 @@ func (t *tunnel) Handshake() error {
 	// generate random size data
 	buf := make([]byte, 2)
 	_, _ = rand.Read(buf)
-	obfSize := binary.BigEndian.Uint16(buf) % 2048
+	obfSize := binary.BigEndian.Uint16(buf) % maxObfSize
 	obf := make([]byte, 2+obfSize)
 	binary.BigEndian.PutUint16(obf[:2], obfSize)
 	_, _ = rand.Read(obf[2:])
@@ -81,6 +83,10 @@ func (t *tunnel) Handshake() error {
 		return t.handshakeErr
 	}
 	obfSize = binary.BigEndian.Uint16(buf)
+	if obfSize >= maxObfSize {
+		t.handshakeErr = errors.Wrap(err, "invalid obf data size")
+		return t.handshakeErr
+	}
 	_, err = io.CopyN(io.Discard, t.Conn, int64(obfSize))
 	if err != nil {
 		t.handshakeErr = errors.Wrap(err, "failed to read obf data")
