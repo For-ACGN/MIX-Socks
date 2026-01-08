@@ -7,6 +7,7 @@ import (
 	"encoding/binary"
 	"encoding/hex"
 	"fmt"
+	"io"
 	"net"
 	"net/http"
 	"time"
@@ -142,7 +143,7 @@ func (s *Server) handleConn(w http.ResponseWriter, r *http.Request) {
 	// append garbage data
 	buf := make([]byte, 4)
 	_, _ = rand.Read(buf)
-	size := binary.BigEndian.Uint32(buf) % 512
+	size := binary.BigEndian.Uint32(buf) % (16 * 1024)
 	garbage := make([]byte, size)
 	header.Set("Obfuscation", hex.EncodeToString(garbage))
 
@@ -154,6 +155,7 @@ func (s *Server) handleConn(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		header.Set("Connect-Error", err.Error())
 	} else {
+		defer func() { _ = target.Close() }()
 		success = true
 	}
 
@@ -174,13 +176,23 @@ func (s *Server) handleConn(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// start forward connection
-
 	// clear deadline that server set
 	_ = conn.SetDeadline(time.Time{})
 
-	_ = target.Close()
-	_ = sessionKey
+	// start forward connection data
+	tun, err := newTunnel(conn, sessionKey)
+	if err != nil {
+		s.logger.Errorf("failed to create tunnel: %s", err)
+		return
+	}
+	go func() {
+		defer func() { _ = target.Close() }()
+		_, _ = io.Copy(target, tun)
+	}()
+	go func() {
+		defer func() { _ = tun.Close() }()
+		_, _ = io.Copy(tun, target)
+	}()
 }
 
 func (s *Server) negotiate(r *http.Request) ([]byte, []byte, error) {
