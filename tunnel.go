@@ -4,6 +4,7 @@ import (
 	"crypto/aes"
 	"crypto/cipher"
 	"crypto/rand"
+	"encoding/binary"
 	"io"
 	"net"
 	"sync"
@@ -13,6 +14,8 @@ import (
 
 type tunnel struct {
 	net.Conn
+
+	block cipher.Block
 
 	key []byte
 	iv  []byte
@@ -35,12 +38,11 @@ func newTunnel(conn net.Conn, key []byte) (*tunnel, error) {
 	if err != nil {
 		return nil, err
 	}
-	stream := cipher.NewCTR(block, iv)
 	t := tunnel{
-		Conn:   conn,
-		key:    key,
-		iv:     iv,
-		writer: stream,
+		Conn:  conn,
+		block: block,
+		key:   key,
+		iv:    iv,
 	}
 	return &t, nil
 }
@@ -48,7 +50,7 @@ func newTunnel(conn net.Conn, key []byte) (*tunnel, error) {
 // +----------+----------+----------+
 // | obf size | obf data |  AES IV  |
 // +----------+----------+----------+
-// |   byte   |   var    | 16 bytes |
+// |  uint16  |   var    | 16 bytes |
 // +----------+----------+----------+
 
 func (t *tunnel) Handshake() error {
@@ -59,11 +61,12 @@ func (t *tunnel) Handshake() error {
 	}
 	t.isHandshake = true
 	// generate random size data
-	obfSize := make([]byte, 1)
-	_, _ = rand.Read(obfSize)
-	obf := make([]byte, 1+obfSize[0])
-	obf[0] = obfSize[0]
-	_, _ = rand.Read(obf[1:])
+	buf := make([]byte, 2)
+	_, _ = rand.Read(buf)
+	obfSize := binary.BigEndian.Uint16(buf) % 2048
+	obf := make([]byte, 2+obfSize)
+	binary.BigEndian.PutUint16(obf[:2], obfSize)
+	_, _ = rand.Read(obf[2:])
 	// exchange AES IV for create read stream
 	packet := append(obf, t.iv...)
 	_, err := t.Conn.Write(packet)
@@ -71,19 +74,21 @@ func (t *tunnel) Handshake() error {
 		t.handshakeErr = errors.Wrap(err, "failed to write iv packet")
 		return t.handshakeErr
 	}
-	// read IV from remote connection
-	_, err = io.ReadFull(t.Conn, obfSize)
+	// read random size data
+	_, err = io.ReadFull(t.Conn, buf)
 	if err != nil {
 		t.handshakeErr = errors.Wrap(err, "failed to read obf size")
 		return t.handshakeErr
 	}
-	_, err = io.CopyN(io.Discard, t.Conn, int64(obfSize[0]))
+	obfSize = binary.BigEndian.Uint16(buf)
+	_, err = io.CopyN(io.Discard, t.Conn, int64(obfSize))
 	if err != nil {
 		t.handshakeErr = errors.Wrap(err, "failed to read obf data")
 		return t.handshakeErr
 	}
+	// read IV from remote connection
 	iv := make([]byte, aes.BlockSize)
-	_, err = t.Conn.Read(iv)
+	_, err = io.ReadFull(t.Conn, iv)
 	if err != nil {
 		t.handshakeErr = errors.Wrap(err, "failed to read iv data")
 		return t.handshakeErr
@@ -94,8 +99,75 @@ func (t *tunnel) Handshake() error {
 		return t.handshakeErr
 	}
 	t.reader = cipher.NewCTR(block, iv)
+	t.writer = cipher.NewCTR(t.block, t.iv)
 	// clean data after exchange
-	_, _ = rand.Read(t.key)
-	_, _ = rand.Read(t.iv)
+	t.key = nil
+	t.iv = nil
 	return nil
+}
+
+func (t *tunnel) Read(b []byte) (int, error) {
+	err := t.Handshake()
+	if err != nil {
+		return 0, err
+	}
+	n, err := t.Conn.Read(b)
+	if err != nil {
+		return n, err
+	}
+	t.reader.XORKeyStream(b[:n], b[:n])
+	return n, nil
+}
+
+func (t *tunnel) Write(b []byte) (int, error) {
+	err := t.Handshake()
+	if err != nil {
+		return 0, err
+	}
+	if len(b) == 0 {
+		return 0, nil
+	}
+	buf := make([]byte, len(b))
+	t.writer.XORKeyStream(buf, b)
+	switch buf[0] % 32 {
+	case 0:
+		chunk := len(buf) % 2048
+		_, err = t.Conn.Write(buf[:chunk])
+		if err != nil {
+			return 0, err
+		}
+		_, err = t.Conn.Write(buf[chunk:])
+		if err != nil {
+			return 0, err
+		}
+		return len(b), nil
+	case 1:
+		chunk := len(buf) % 8192
+		_, err = t.Conn.Write(buf[:chunk])
+		if err != nil {
+			return 0, err
+		}
+		if chunk != len(buf) {
+			_, err = t.Conn.Write(buf[chunk:])
+			if err != nil {
+				return 0, err
+			}
+		}
+		return len(b), nil
+	case 2:
+		chunk := len(buf) % 16384
+		_, err = t.Conn.Write(buf[:chunk])
+		if err != nil {
+			return 0, err
+		}
+		if chunk != len(buf) {
+			_, err = t.Conn.Write(buf[chunk:])
+			if err != nil {
+				return 0, err
+			}
+		}
+		return len(b), nil
+	default:
+		return t.Conn.Write(buf)
+	}
 }
