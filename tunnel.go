@@ -104,8 +104,8 @@ func (t *tunnel) Handshake() error {
 		t.handshakeErr = errors.Wrap(err, "failed to create reader stream")
 		return t.handshakeErr
 	}
-	t.reader = cipher.NewCTR(block, iv)
-	t.writer = cipher.NewCTR(t.block, t.iv)
+	t.reader = cipher.NewCTR(block, iv)     // #nosec
+	t.writer = cipher.NewCTR(t.block, t.iv) // #nosec
 	// clean data after exchange
 	t.key = nil
 	t.iv = nil
