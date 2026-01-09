@@ -25,8 +25,8 @@ const (
 )
 
 const (
-	defaultMaxConns = 1000
-	defaultTimeout  = time.Minute
+	defaultMaxConns      = 1000
+	defaultServerTimeout = time.Minute
 )
 
 // Server is a SOCKS-over-HTTPS server.
@@ -78,11 +78,11 @@ func NewServer(ctx context.Context, config *ServerConfig) (*Server, error) {
 	}
 	listener = netutil.LimitListener(listener, maxConns)
 	// create http server
-	serverMux := http.NewServeMux()
 	timeout := time.Duration(config.HTTP.Timeout)
 	if timeout < time.Second {
-		timeout = defaultTimeout
+		timeout = defaultServerTimeout
 	}
+	serverMux := http.NewServeMux()
 	srv := http.Server{
 		ReadHeaderTimeout: timeout,
 		ReadTimeout:       timeout,
