@@ -228,15 +228,19 @@ func (s *Server) negotiate(r *http.Request) ([]byte, []byte, error) {
 
 // Serve is used to start http server.
 func (s *Server) Serve() error {
-	return s.server.Serve(s.listener)
+	s.logger.Infof("server listening on %s", s.listener.Addr())
+	err := s.server.Serve(s.listener)
+	if errors.Is(err, http.ErrServerClosed) {
+		err = nil
+	}
+	return err
 }
 
 // Close is used to close http server.
 func (s *Server) Close() error {
-	err := s.logger.Close()
-	e := s.server.Close()
-	if e != nil && err == nil {
-		err = e
-	}
+	s.logger.Info("server is closed")
+	_ = s.logger.Close()
+	err := s.server.Close()
+	_ = s.listener.Close()
 	return err
 }
