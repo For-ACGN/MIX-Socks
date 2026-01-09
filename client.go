@@ -1,6 +1,7 @@
 package msocks
 
 import (
+	"bufio"
 	"context"
 	"crypto/sha256"
 	"crypto/tls"
@@ -11,6 +12,7 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"sync/atomic"
 	"time"
 
 	"github.com/pkg/errors"
@@ -38,6 +40,8 @@ type Client struct {
 	frontListener net.Listener
 
 	connCh chan net.Conn
+
+	inShutdown atomic.Bool
 
 	ctx    context.Context
 	cancel context.CancelFunc
@@ -142,16 +146,88 @@ func (c *Client) Logout() error {
 	return nil
 }
 
+func (c *Client) shuttingDown() bool {
+	return c.inShutdown.Load()
+}
+
 // Serve is used to start front server.
 func (c *Client) Serve() error {
 	c.logger.Infof("front server listening on %s", c.frontListener.Addr())
-	return nil
+	go c.connector()
+	var tempDelay time.Duration
+	maxDelay := time.Second
+	for {
+		conn, err := c.frontListener.Accept()
+		if err != nil {
+			if c.shuttingDown() {
+				return nil
+			}
+			if ne, ok := err.(net.Error); ok && ne.Timeout() {
+				if tempDelay == 0 {
+					tempDelay = 5 * time.Millisecond
+				} else {
+					tempDelay *= 2
+				}
+				if tempDelay > maxDelay {
+					tempDelay = maxDelay
+				}
+				c.logger.Warningf("http: Accept error: %s; retrying in %v", err, tempDelay)
+				time.Sleep(tempDelay)
+				continue
+			}
+			return err
+		}
+		go c.handleConn(conn)
+	}
+}
+
+func (c *Client) handleConn(conn net.Conn) {
+	defer func() { _ = conn.Close() }()
+	// peek first byte for switch protocol type
+	reader := bufio.NewReader(conn)
+	protocol, err := reader.Peek(1)
+	if err != nil {
+		c.logger.Warningf("failed to peek first byte: %s", err)
+		return
+	}
+	switch protocol[0] {
+	case version4:
+
+	case version5:
+
+	default: // HTTP tunnel or simple proxy
+
+	}
+}
+
+func (c *Client) connector() {
+	for {
+		select {
+		case <-time.After(100 * time.Millisecond):
+
+		case <-c.ctx.Done():
+			return
+		}
+	}
+}
+
+func (c *Client) connect() (net.Conn, error) {
+	dialer := tls.Dialer{
+		Config: c.tlsConfig,
+	}
+	conn, err := dialer.DialContext(c.ctx, c.serverNet, c.serverAddr)
+	if err != nil {
+		return nil, errors.Wrap(err, "failed to connect to server")
+	}
+
+	return conn, nil
 }
 
 // Close is used to close front server.
 func (c *Client) Close() error {
 	c.logger.Info("client is closed")
 	_ = c.logger.Close()
+	c.inShutdown.Store(true)
 	c.cancel()
 	var err error
 	if c.frontListener != nil {
