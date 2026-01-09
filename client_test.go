@@ -1,8 +1,10 @@
 package msocks
 
 import (
+	"context"
 	"os"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 )
@@ -42,5 +44,99 @@ func TestNewClient(t *testing.T) {
 	require.NotNil(t, client)
 
 	err = client.Close()
+	require.NoError(t, err)
+}
+
+func TestClient_Login(t *testing.T) {
+	defer func() {
+		testRemoveClientLogFile(t)
+		testRemoveServerLogFile(t)
+	}()
+
+	serverCfg := testBuildServerConfig()
+	server, err := NewServer(context.Background(), serverCfg)
+	require.NoError(t, err)
+	require.NotNil(t, server)
+	go func() {
+		err := server.Serve()
+		require.NoError(t, err)
+	}()
+
+	clientCfg := testBuildClientConfig()
+	client, err := NewClient(clientCfg)
+	require.NoError(t, err)
+	require.NotNil(t, client)
+
+	err = client.Login()
+	require.NoError(t, err)
+
+	err = client.Close()
+	require.NoError(t, err)
+
+	err = server.Close()
+	require.NoError(t, err)
+}
+
+func TestClient_Logout(t *testing.T) {
+	defer func() {
+		testRemoveClientLogFile(t)
+		testRemoveServerLogFile(t)
+	}()
+
+	serverCfg := testBuildServerConfig()
+	server, err := NewServer(context.Background(), serverCfg)
+	require.NoError(t, err)
+	require.NotNil(t, server)
+	go func() {
+		err := server.Serve()
+		require.NoError(t, err)
+	}()
+
+	clientCfg := testBuildClientConfig()
+	client, err := NewClient(clientCfg)
+	require.NoError(t, err)
+	require.NotNil(t, client)
+
+	err = client.Logout()
+	require.NoError(t, err)
+
+	err = client.Close()
+	require.NoError(t, err)
+
+	err = server.Close()
+	require.NoError(t, err)
+}
+
+func TestClient_Serve(t *testing.T) {
+	defer func() {
+		testRemoveClientLogFile(t)
+		testRemoveServerLogFile(t)
+	}()
+
+	serverCfg := testBuildServerConfig()
+	server, err := NewServer(context.Background(), serverCfg)
+	require.NoError(t, err)
+	require.NotNil(t, server)
+	go func() {
+		err := server.Serve()
+		require.NoError(t, err)
+	}()
+
+	clientCfg := testBuildClientConfig()
+	client, err := NewClient(clientCfg)
+	require.NoError(t, err)
+	require.NotNil(t, client)
+
+	go func() {
+		err := client.Serve()
+		require.NoError(t, err)
+	}()
+
+	time.Sleep(time.Second)
+
+	err = client.Close()
+	require.NoError(t, err)
+
+	err = server.Close()
 	require.NoError(t, err)
 }
