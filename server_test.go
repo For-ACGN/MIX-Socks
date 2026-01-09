@@ -2,7 +2,6 @@ package msocks
 
 import (
 	"context"
-	"net/http"
 	"os"
 	"testing"
 	"time"
@@ -51,7 +50,7 @@ func TestServer_Serve(t *testing.T) {
 
 	go func() {
 		err := server.Serve()
-		require.Equal(t, err, http.ErrServerClosed)
+		require.NoError(t, err)
 	}()
 
 	time.Sleep(time.Second)
