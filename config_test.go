@@ -11,10 +11,13 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-var testPassHash string
+var (
+	testPassword = "test"
+	testPassHash string
+)
 
 func init() {
-	h := sha256.Sum256([]byte("test"))
+	h := sha256.Sum256([]byte(testPassword))
 	testPassHash = hex.EncodeToString(h[:])
 	fmt.Println("pass hash:", testPassHash)
 }
