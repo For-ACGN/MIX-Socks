@@ -4,7 +4,6 @@ import (
 	"context"
 	"crypto/rand"
 	"crypto/tls"
-	"encoding/binary"
 	"encoding/hex"
 	"fmt"
 	"io"
@@ -99,6 +98,7 @@ func NewServer(ctx context.Context, config *ServerConfig) (*Server, error) {
 	serverMux.HandleFunc("/", server.handleIndex)
 	serverMux.HandleFunc(fmt.Sprintf("/%s/login", hash), server.handleLogin)
 	serverMux.HandleFunc(fmt.Sprintf("/%s/logout", hash), server.handleLogout)
+	serverMux.HandleFunc(fmt.Sprintf("/%s/ping", hash), server.handlePing)
 	serverMux.HandleFunc(fmt.Sprintf("/%s/connect", hash), server.handleConn)
 	return &server, nil
 }
@@ -117,6 +117,13 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleLogout(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusOK)
 	s.logger.Infof("user from %s is logout", r.RemoteAddr)
+}
+
+func (s *Server) handlePing(w http.ResponseWriter, r *http.Request) {
+	garbage := make([]byte, newMathRand().Intn(32*1024))
+	header := w.Header()
+	header.Set("Obfuscation", hex.EncodeToString(garbage))
+	w.WriteHeader(http.StatusOK)
 }
 
 func (s *Server) handleConn(w http.ResponseWriter, r *http.Request) {
@@ -141,10 +148,7 @@ func (s *Server) handleConn(w http.ResponseWriter, r *http.Request) {
 	header.Set("Public-Key", hex.EncodeToString(serverPub))
 
 	// append garbage data
-	buf := make([]byte, 4)
-	_, _ = rand.Read(buf)
-	size := binary.BigEndian.Uint32(buf) % (16 * 1024)
-	garbage := make([]byte, size)
+	garbage := make([]byte, newMathRand().Intn(16*1024))
 	header.Set("Obfuscation", hex.EncodeToString(garbage))
 
 	// try to connect target
@@ -238,9 +242,9 @@ func (s *Server) Serve() error {
 
 // Close is used to close http server.
 func (s *Server) Close() error {
-	s.logger.Info("server is closed")
-	_ = s.logger.Close()
 	err := s.server.Close()
 	_ = s.listener.Close()
+	s.logger.Info("server is closed")
+	_ = s.logger.Close()
 	return err
 }
