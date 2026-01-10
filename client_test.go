@@ -2,6 +2,10 @@ package msocks
 
 import (
 	"context"
+	"fmt"
+	"io"
+	"net"
+	"net/http"
 	"os"
 	"testing"
 	"time"
@@ -133,6 +137,52 @@ func TestClient_Serve(t *testing.T) {
 	}()
 
 	time.Sleep(time.Second)
+
+	err = client.Close()
+	require.NoError(t, err)
+
+	err = server.Close()
+	require.NoError(t, err)
+}
+
+func TestClient_connect(t *testing.T) {
+	defer func() {
+		testRemoveClientLogFile(t)
+		testRemoveServerLogFile(t)
+	}()
+
+	serverCfg := testBuildServerConfig()
+	server, err := NewServer(context.Background(), serverCfg)
+	require.NoError(t, err)
+	require.NotNil(t, server)
+	go func() {
+		err := server.Serve()
+		require.NoError(t, err)
+	}()
+
+	clientCfg := testBuildClientConfig()
+	client, err := NewClient(clientCfg)
+	require.NoError(t, err)
+	require.NotNil(t, client)
+
+	go func() {
+		err := client.Serve()
+		require.NoError(t, err)
+	}()
+
+	transport := http.Transport{
+		DialContext: func(_ context.Context, net, addr string) (net.Conn, error) {
+			return client.connect(net, addr)
+		},
+	}
+	httpClient := http.Client{
+		Transport: &transport,
+	}
+	resp, err := httpClient.Get("https://github.com/")
+	require.NoError(t, err)
+	data, err := io.ReadAll(resp.Body)
+	require.NoError(t, err)
+	fmt.Println(string(data))
 
 	err = client.Close()
 	require.NoError(t, err)
