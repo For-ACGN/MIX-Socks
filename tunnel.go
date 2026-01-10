@@ -26,6 +26,8 @@ type tunnel struct {
 	handshakeErr error
 	handshakeMu  sync.Mutex
 
+	writeCtr uint64
+
 	writer cipher.Stream
 	reader cipher.Stream
 }
@@ -135,45 +137,40 @@ func (t *tunnel) Write(b []byte) (int, error) {
 	}
 	buf := make([]byte, len(b))
 	t.writer.XORKeyStream(buf, b)
-	switch buf[0] % 32 {
+	t.writeCtr++
+	if t.writeCtr < 32 {
+		return t.writeSegment(buf)
+	}
+	switch buf[0] % 10 {
 	case 0:
-		chunk := len(buf) % 2048
-		_, err = t.Conn.Write(buf[:chunk])
-		if err != nil {
-			return 0, err
-		}
-		_, err = t.Conn.Write(buf[chunk:])
-		if err != nil {
-			return 0, err
-		}
-		return len(b), nil
-	case 1:
-		chunk := len(buf) % 8192
-		_, err = t.Conn.Write(buf[:chunk])
-		if err != nil {
-			return 0, err
-		}
-		if chunk != len(buf) {
-			_, err = t.Conn.Write(buf[chunk:])
-			if err != nil {
-				return 0, err
-			}
-		}
-		return len(b), nil
-	case 2:
-		chunk := len(buf) % 16384
-		_, err = t.Conn.Write(buf[:chunk])
-		if err != nil {
-			return 0, err
-		}
-		if chunk != len(buf) {
-			_, err = t.Conn.Write(buf[chunk:])
-			if err != nil {
-				return 0, err
-			}
-		}
-		return len(b), nil
+		return t.writeSegment(buf)
 	default:
 		return t.Conn.Write(buf)
 	}
+}
+
+func (t *tunnel) writeSegment(b []byte) (int, error) {
+	mRand := newMathRand()
+	numSegments := 2 + mRand.Intn(7)
+	var numWritten int
+	for i := 0; i < numSegments; i++ {
+		if i == numSegments-1 {
+			_, err := t.Conn.Write(b[numWritten:])
+			if err != nil {
+				return 0, err
+			}
+		} else {
+			remaining := len(b) - numWritten
+			size := mRand.Intn(len(b))
+			if size > remaining {
+				size = remaining
+			}
+			_, err := t.Conn.Write(b[numWritten : numWritten+size])
+			if err != nil {
+				return 0, err
+			}
+			numWritten += size
+		}
+	}
+	return len(b), nil
 }
