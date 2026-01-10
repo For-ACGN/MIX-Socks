@@ -107,6 +107,7 @@ func (s *Server) handleIndex(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusOK)
 	_, _ = w.Write([]byte("hello: "))
 	_, _ = w.Write([]byte(r.RemoteAddr))
+	s.logger.Infof("income request: %s", r.RemoteAddr)
 }
 
 func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
@@ -128,6 +129,7 @@ func (s *Server) handlePing(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleConnect(w http.ResponseWriter, r *http.Request) {
+	var success bool
 	hijacker, ok := w.(http.Hijacker)
 	if !ok {
 		s.logger.Errorf("connection from %s can not be hijacked", r.RemoteAddr)
@@ -138,7 +140,11 @@ func (s *Server) handleConnect(w http.ResponseWriter, r *http.Request) {
 		s.logger.Error("failed to hijack connection from", r.RemoteAddr)
 		return
 	}
-	defer func() { _ = conn.Close() }()
+	defer func() {
+		if !success {
+			_ = conn.Close()
+		}
+	}()
 
 	// negotiate session key
 	sessionKey, serverPub, err := s.negotiate(r)
@@ -153,15 +159,19 @@ func (s *Server) handleConnect(w http.ResponseWriter, r *http.Request) {
 	header.Set("Obfuscation", hex.EncodeToString(garbage))
 
 	// try to connect target
-	var success bool
+	var connectOK bool
 	network := r.Header.Get("Network")
 	address := r.Header.Get("Address")
 	target, err := net.Dial(network, address)
 	if err != nil {
 		header.Set("Connect-Error", err.Error())
 	} else {
-		defer func() { _ = target.Close() }()
-		success = true
+		defer func() {
+			if !success {
+				_ = target.Close()
+			}
+		}()
+		connectOK = true
 	}
 
 	// write response
@@ -177,7 +187,7 @@ func (s *Server) handleConnect(w http.ResponseWriter, r *http.Request) {
 		s.logger.Errorf("failed to write response to %s: %s", r.RemoteAddr, err)
 		return
 	}
-	if !success {
+	if !connectOK {
 		return
 	}
 
@@ -187,7 +197,7 @@ func (s *Server) handleConnect(w http.ResponseWriter, r *http.Request) {
 	// start forward connection data
 	tun, err := newTunnel(conn, sessionKey)
 	if err != nil {
-		s.logger.Errorf("failed to create tunnel: %s", err)
+		s.logger.Error("failed to create tunnel:", err)
 		return
 	}
 	go func() {
@@ -198,6 +208,7 @@ func (s *Server) handleConnect(w http.ResponseWriter, r *http.Request) {
 		defer func() { _ = tun.Close() }()
 		_, _ = io.Copy(tun, target)
 	}()
+	success = true
 }
 
 func (s *Server) negotiate(r *http.Request) ([]byte, []byte, error) {
@@ -215,7 +226,7 @@ func (s *Server) negotiate(r *http.Request) ([]byte, []byte, error) {
 	serverPri := make([]byte, curve25519.ScalarSize)
 	_, err = rand.Read(serverPri)
 	if err != nil {
-		s.logger.Errorf("failed to generate random data for key exchange: %s", err)
+		s.logger.Error("failed to generate random data for key exchange:", err)
 		return nil, nil, err
 	}
 	serverPub, err := curve25519.X25519(serverPri, curve25519.Basepoint)
