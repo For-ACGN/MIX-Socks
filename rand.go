@@ -12,8 +12,8 @@ func newMathRand() *rand.Rand {
 	_, err := crand.Read(buf)
 	if err != nil {
 		now := time.Now().UnixNano()
-		binary.BigEndian.PutUint64(buf, uint64(now))
+		binary.BigEndian.PutUint64(buf, uint64(now)) // #nosec G115
 	}
 	seed := binary.BigEndian.Uint64(buf)
-	return rand.New(rand.NewSource(int64(seed)))
+	return rand.New(rand.NewSource(int64(seed))) // #nosec
 }
