@@ -99,7 +99,7 @@ func NewServer(ctx context.Context, config *ServerConfig) (*Server, error) {
 	serverMux.HandleFunc(fmt.Sprintf("/%s/login", hash), server.handleLogin)
 	serverMux.HandleFunc(fmt.Sprintf("/%s/logout", hash), server.handleLogout)
 	serverMux.HandleFunc(fmt.Sprintf("/%s/ping", hash), server.handlePing)
-	serverMux.HandleFunc(fmt.Sprintf("/%s/connect", hash), server.handleConn)
+	serverMux.HandleFunc(fmt.Sprintf("/%s/connect", hash), server.handleConnect)
 	return &server, nil
 }
 
@@ -123,10 +123,11 @@ func (s *Server) handlePing(w http.ResponseWriter, r *http.Request) {
 	garbage := make([]byte, newMathRand().Intn(32*1024))
 	header := w.Header()
 	header.Set("Obfuscation", hex.EncodeToString(garbage))
+	header.Set("Pong", "Ping-Pong")
 	w.WriteHeader(http.StatusOK)
 }
 
-func (s *Server) handleConn(w http.ResponseWriter, r *http.Request) {
+func (s *Server) handleConnect(w http.ResponseWriter, r *http.Request) {
 	hijacker, ok := w.(http.Hijacker)
 	if !ok {
 		s.logger.Errorf("connection from %s can not be hijacked", r.RemoteAddr)
