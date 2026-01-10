@@ -12,6 +12,7 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -45,6 +46,7 @@ type Client struct {
 
 	ctx    context.Context
 	cancel context.CancelFunc
+	wg     sync.WaitGroup
 }
 
 // NewClient is used to create SoH client.
@@ -67,7 +69,7 @@ func NewClient(config *ClientConfig) (*Client, error) {
 	tlsConfig := &tls.Config{}
 	caPath := config.Server.RootCA
 	if caPath != "" {
-		ca, err := os.ReadFile(caPath)
+		ca, err := os.ReadFile(caPath) // #nosec
 		if err != nil {
 			return nil, errors.Wrap(err, "failed to read Root CA certificate")
 		}
@@ -152,8 +154,11 @@ func (c *Client) shuttingDown() bool {
 
 // Serve is used to start front server.
 func (c *Client) Serve() error {
+	for i := 0; i < 8; i++ {
+		c.wg.Add(1)
+		go c.connector()
+	}
 	c.logger.Infof("front server listening on %s", c.frontListener.Addr())
-	go c.connector()
 	var tempDelay time.Duration
 	maxDelay := time.Second
 	for {
@@ -201,9 +206,29 @@ func (c *Client) handleConn(conn net.Conn) {
 }
 
 func (c *Client) connector() {
+	mRand := newMathRand()
 	for {
+		// check client is closed
 		select {
-		case <-time.After(100 * time.Millisecond):
+		case <-c.ctx.Done():
+			return
+		default:
+		}
+		// wait random time
+		var delay time.Duration
+		switch mRand.Intn(10) {
+		case 0, 1, 2, 3:
+			delay = 0 * time.Second
+		case 4:
+			delay = 1 * time.Second
+		case 5:
+			delay = 2 * time.Second
+		default:
+			delay = time.Duration(mRand.Intn(250)) * time.Millisecond
+		}
+		// pre connect
+		select {
+		case <-time.After(delay):
 
 		case <-c.ctx.Done():
 			return
@@ -225,10 +250,10 @@ func (c *Client) connect() (net.Conn, error) {
 
 // Close is used to close front server.
 func (c *Client) Close() error {
-	c.logger.Info("client is closed")
-	_ = c.logger.Close()
 	c.inShutdown.Store(true)
+	c.logger.Info("close connectors")
 	c.cancel()
+	c.wg.Wait()
 	var err error
 	if c.frontListener != nil {
 		err = c.frontListener.Close()
@@ -236,5 +261,7 @@ func (c *Client) Close() error {
 			err = errors.Wrap(err, "failed to close front listener")
 		}
 	}
+	c.logger.Info("client is closed")
+	_ = c.logger.Close()
 	return err
 }
