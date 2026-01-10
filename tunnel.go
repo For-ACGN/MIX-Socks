@@ -32,7 +32,7 @@ type tunnel struct {
 	reader cipher.Stream
 }
 
-func newTunnel(conn net.Conn, key []byte) (*tunnel, error) {
+func newTunnel(conn net.Conn, key []byte) (net.Conn, error) {
 	block, err := aes.NewCipher(key)
 	if err != nil {
 		return nil, err
