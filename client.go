@@ -30,6 +30,7 @@ type Client struct {
 
 	passHash string
 	timeout  time.Duration
+	preConns int
 
 	serverNet  string
 	serverAddr string
@@ -95,9 +96,11 @@ func NewClient(config *ClientConfig) (*Client, error) {
 		Timeout: timeout,
 	}
 	client := Client{
-		logger:   logger,
+		logger: logger,
+
 		passHash: passHash,
 		timeout:  timeout,
+		preConns: preConns,
 
 		serverNet:  config.Server.Network,
 		serverAddr: config.Server.Address,
@@ -205,7 +208,27 @@ func (c *Client) handleConn(conn net.Conn) {
 	}
 }
 
+func (c *Client) getConn() (net.Conn, error) {
+	// try to get connection from preconnect channel
+	select {
+	case conn := <-c.connCh:
+		return conn, nil
+	case <-c.ctx.Done():
+		return nil, c.ctx.Err()
+	default:
+	}
+	// if channel is empty(A large number of connections
+	// were used in a short period of time), connect now
+	return c.connect()
+}
+
 func (c *Client) connector() {
+	defer func() {
+		if r := recover(); r != nil {
+			c.logger.Fatal("connector", r)
+		}
+		c.wg.Done()
+	}()
 	mRand := newMathRand()
 	for {
 		// check client is closed
@@ -229,7 +252,21 @@ func (c *Client) connector() {
 		// pre connect
 		select {
 		case <-time.After(delay):
-
+			if len(c.connCh) == c.preConns {
+				time.Sleep(100 * time.Millisecond)
+				continue
+			}
+			conn, err := c.connect()
+			if err != nil {
+				c.logger.Warning("failed to connect:", err)
+				continue
+			}
+			select {
+			case c.connCh <- conn:
+			case <-c.ctx.Done():
+				_ = conn.Close()
+				return
+			}
 		case <-c.ctx.Done():
 			return
 		}
@@ -244,7 +281,31 @@ func (c *Client) connect() (net.Conn, error) {
 	if err != nil {
 		return nil, errors.Wrap(err, "failed to connect to server")
 	}
-
+	URL := fmt.Sprintf("https://%s/%s/ping", c.serverAddr, c.passHash)
+	req, err := http.NewRequestWithContext(c.ctx, "GET", URL, nil)
+	if err != nil {
+		return nil, errors.Wrap(err, "failed to create request")
+	}
+	garbage := make([]byte, 128+newMathRand().Intn(2*1024))
+	req.Header.Set("Obfuscation", hex.EncodeToString(garbage))
+	err = req.Write(conn)
+	if err != nil {
+		return nil, errors.Wrap(err, "failed to send request")
+	}
+	resp, err := http.ReadResponse(bufio.NewReader(conn), req)
+	if err != nil {
+		return nil, errors.Wrap(err, "failed to read response")
+	}
+	defer func() {
+		_, _ = io.Copy(io.Discard, resp.Body)
+		_ = resp.Body.Close()
+	}()
+	if resp.StatusCode != http.StatusOK {
+		return nil, errors.Errorf("invalid response status: %s", resp.Status)
+	}
+	if resp.Header.Get("Pong") != "Ping-Pong" {
+		return nil, errors.New("invalid server response about ping")
+	}
 	return conn, nil
 }
 
