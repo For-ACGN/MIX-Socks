@@ -3,6 +3,7 @@ package msocks
 import (
 	"bufio"
 	"context"
+	"crypto/rand"
 	"crypto/sha256"
 	"crypto/tls"
 	"crypto/x509"
@@ -17,6 +18,7 @@ import (
 	"time"
 
 	"github.com/pkg/errors"
+	"golang.org/x/crypto/curve25519"
 )
 
 const (
@@ -117,10 +119,14 @@ func NewClient(config *ClientConfig) (*Client, error) {
 	return &client, nil
 }
 
+func (c *Client) buildURL(path string) string {
+	return fmt.Sprintf("https://%s/%s/%s", c.serverAddr, c.passHash, path)
+}
+
 // Login is used to log in to server.
 func (c *Client) Login() error {
 	defer c.client.CloseIdleConnections()
-	resp, err := c.client.Get(fmt.Sprintf("https://%s/%s/login", c.serverAddr, c.passHash))
+	resp, err := c.client.Get(c.buildURL("login"))
 	if err != nil {
 		return errors.Wrap(err, "failed to log in")
 	}
@@ -137,7 +143,7 @@ func (c *Client) Login() error {
 // Logout is used to log out to server.
 func (c *Client) Logout() error {
 	defer c.client.CloseIdleConnections()
-	resp, err := c.client.Get(fmt.Sprintf("https://%s/%s/logout", c.serverAddr, c.passHash))
+	resp, err := c.client.Get(c.buildURL("logout"))
 	if err != nil {
 		return errors.Wrap(err, "failed to log out")
 	}
@@ -206,9 +212,91 @@ func (c *Client) handleConn(conn net.Conn) {
 	default: // HTTP tunnel or simple proxy
 
 	}
+
+	// // start forward connection data
+	//
+	//
+	//
+	//
+	// go func() {
+	// 	defer func() { _ = target.Close() }()
+	// 	_, _ = io.Copy(target, tun)
+	// }()
+	// go func() {
+	// 	defer func() { _ = tun.Close() }()
+	// 	_, _ = io.Copy(tun, target)
+	// }()
 }
 
-func (c *Client) getConn() (net.Conn, error) {
+func (c *Client) connect(network, address string) (net.Conn, error) {
+	conn, err := c.getPreConn()
+	if err != nil {
+		return nil, err
+	}
+	// apply timeout
+	_ = conn.SetDeadline(time.Now().Add(c.timeout))
+	// process key exchange
+	clientPri := make([]byte, curve25519.ScalarSize)
+	_, err = rand.Read(clientPri)
+	if err != nil {
+		return nil, errors.Wrap(err, "failed to generate random data for key exchange")
+	}
+	clientPub, err := curve25519.X25519(clientPri, curve25519.Basepoint)
+	if err != nil {
+		return nil, errors.Wrap(err, "failed to x25519 with base point")
+	}
+	// send connect request
+	req, err := http.NewRequestWithContext(c.ctx, "GET", c.buildURL("connect"), nil)
+	if err != nil {
+		return nil, errors.Wrap(err, "failed to create request for connect")
+	}
+	garbage := make([]byte, 128+newMathRand().Intn(2*1024))
+	header := req.Header
+	header.Set("Public-Key", hex.EncodeToString(clientPub))
+	header.Set("Obfuscation", hex.EncodeToString(garbage))
+	header.Set("Network", network)
+	header.Set("Address", address)
+	err = req.Write(conn)
+	if err != nil {
+		return nil, errors.Wrap(err, "failed to send request for connect")
+	}
+	// process response for get connect error and public key
+	reader := bufio.NewReader(conn)
+	resp, err := http.ReadResponse(reader, req)
+	if err != nil {
+		return nil, errors.Wrap(err, "failed to read response")
+	}
+	defer func() {
+		_, _ = io.Copy(io.Discard, resp.Body)
+		_ = resp.Body.Close()
+	}()
+	if resp.StatusCode != http.StatusOK {
+		return nil, errors.Errorf("invalid response status: %s", resp.Status)
+	}
+	header = resp.Header
+	connectErr := header.Get("Connect-Error")
+	if connectErr != "" {
+		return nil, errors.New(connectErr)
+	}
+	serverPub, err := hex.DecodeString(header.Get("Public-Key"))
+	if err != nil {
+		return nil, errors.Wrap(err, "failed to decode public key")
+	}
+	sessionKey, err := curve25519.X25519(clientPri, serverPub)
+	if err != nil {
+		return nil, errors.Wrap(err, "failed to negotiate session key")
+	}
+	// clear deadline that connector set
+	_ = conn.SetDeadline(time.Time{})
+	// create crypto tunnel
+	tun, err := newTunnel(newBufConn(conn, reader), sessionKey)
+	if err != nil {
+		return nil, errors.Wrap(err, "failed to create tunnel")
+	}
+	return tun, nil
+}
+
+func (c *Client) getPreConn() (net.Conn, error) {
 	// try to get connection from preconnect channel
 	select {
 	case conn := <-c.connCh:
@@ -219,7 +307,7 @@ func (c *Client) getConn() (net.Conn, error) {
 	}
 	// if channel is empty(A large number of connections
 	// were used in a short period of time), connect now
-	return c.connect()
+	return c.preconnect()
 }
 
 func (c *Client) connector() {
@@ -256,7 +344,7 @@ func (c *Client) connector() {
 				time.Sleep(100 * time.Millisecond)
 				continue
 			}
-			conn, err := c.connect()
+			conn, err := c.preconnect()
 			if err != nil {
 				c.logger.Warning("failed to connect:", err)
 				continue
@@ -273,7 +361,7 @@ func (c *Client) connector() {
 	}
 }
 
-func (c *Client) connect() (net.Conn, error) {
+func (c *Client) preconnect() (net.Conn, error) {
 	dialer := tls.Dialer{
 		Config: c.tlsConfig,
 	}
@@ -281,16 +369,17 @@ func (c *Client) connect() (net.Conn, error) {
 	if err != nil {
 		return nil, errors.Wrap(err, "failed to connect to server")
 	}
-	URL := fmt.Sprintf("https://%s/%s/ping", c.serverAddr, c.passHash)
-	req, err := http.NewRequestWithContext(c.ctx, "GET", URL, nil)
+	// apply timeout
+	_ = conn.SetDeadline(time.Now().Add(c.timeout))
+	req, err := http.NewRequestWithContext(c.ctx, "GET", c.buildURL("ping"), nil)
 	if err != nil {
-		return nil, errors.Wrap(err, "failed to create request")
+		return nil, errors.Wrap(err, "failed to create request for preconnect")
 	}
 	garbage := make([]byte, 128+newMathRand().Intn(2*1024))
 	req.Header.Set("Obfuscation", hex.EncodeToString(garbage))
 	err = req.Write(conn)
 	if err != nil {
-		return nil, errors.Wrap(err, "failed to send request")
+		return nil, errors.Wrap(err, "failed to send request for preconnect")
 	}
 	resp, err := http.ReadResponse(bufio.NewReader(conn), req)
 	if err != nil {
@@ -306,6 +395,8 @@ func (c *Client) connect() (net.Conn, error) {
 	if resp.Header.Get("Pong") != "Ping-Pong" {
 		return nil, errors.New("invalid server response about ping")
 	}
+	// reset deadline
+	_ = conn.SetDeadline(time.Time{})
 	return conn, nil
 }
 
