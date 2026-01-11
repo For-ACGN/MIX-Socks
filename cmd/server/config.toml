@@ -5,8 +5,8 @@
 [http]
   network   = "tcp"
   address   = ":2019"
-  max_conns = 1000
   timeout   = "1m"
+  max_conns = 1000
 
 [tls]
   mode = "acme"  # "acme" or "static"
@@ -15,5 +15,5 @@
     domains = ["example.com"]
 
   [tls.static]
-    cert_path = ""
-    cert_key  = ""
+    cert_path = "certs/cert.pem"
+    key_path  = "certs/key.pem"
