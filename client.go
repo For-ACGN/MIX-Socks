@@ -23,7 +23,7 @@ import (
 
 const (
 	defaultPreConns      = 32
-	defaultClientTimeout = time.Minute
+	defaultClientTimeout = 30 * time.Second
 )
 
 // Client is a SoH client with SOCKS4, SOCKS5 and HTTP proxy server.
@@ -196,7 +196,16 @@ func (c *Client) Serve() error {
 }
 
 func (c *Client) handleConn(conn net.Conn) {
-	defer func() { _ = conn.Close() }()
+	var success bool
+	defer func() {
+		if !success {
+			_ = conn.Close()
+		}
+	}()
+
+	// apply timeout
+	_ = conn.SetDeadline(time.Now().Add(c.timeout))
+
 	// peek first byte for switch protocol type
 	reader := bufio.NewReader(conn)
 	protocol, err := reader.Peek(1)
@@ -204,28 +213,33 @@ func (c *Client) handleConn(conn net.Conn) {
 		c.logger.Warningf("failed to peek first byte: %s", err)
 		return
 	}
+	var tun net.Conn
 	switch protocol[0] {
 	case version4:
 
 	case version5:
 
 	default: // HTTP tunnel or simple proxy
-
+		tun, err = c.serveHTTPRequest(conn, reader)
+	}
+	if err != nil {
+		c.logger.Warningf("failed to create tunnel: %s", err)
+		return
 	}
 
-	// // start forward connection data
-	//
-	//
-	//
-	//
-	// go func() {
-	// 	defer func() { _ = target.Close() }()
-	// 	_, _ = io.Copy(target, tun)
-	// }()
-	// go func() {
-	// 	defer func() { _ = tun.Close() }()
-	// 	_, _ = io.Copy(tun, target)
-	// }()
+	// clear deadline
+	_ = conn.SetDeadline(time.Time{})
+
+	// start forward connection data
+	go func() {
+		defer func() { _ = conn.Close() }()
+		_, _ = io.Copy(conn, tun)
+	}()
+	go func() {
+		defer func() { _ = tun.Close() }()
+		_, _ = io.Copy(tun, conn)
+	}()
+	success = true
 }
 
 func (c *Client) connect(network, address string) (net.Conn, error) {
@@ -250,7 +264,7 @@ func (c *Client) connect(network, address string) (net.Conn, error) {
 	if err != nil {
 		return nil, errors.Wrap(err, "failed to create request for connect")
 	}
-	garbage := make([]byte, 128+newMathRand().Intn(2*1024))
+	garbage := make([]byte, 256+newMathRand().Intn(2*1024))
 	header := req.Header
 	header.Set("Public-Key", hex.EncodeToString(clientPub))
 	header.Set("Obfuscation", hex.EncodeToString(garbage))
@@ -267,7 +281,6 @@ func (c *Client) connect(network, address string) (net.Conn, error) {
 		return nil, errors.Wrap(err, "failed to read response")
 	}
 	defer func() {
-		_, _ = io.Copy(io.Discard, resp.Body)
 		_ = resp.Body.Close()
 	}()
 	if resp.StatusCode != http.StatusOK {
@@ -346,7 +359,7 @@ func (c *Client) connector() {
 			}
 			conn, err := c.preconnect()
 			if err != nil {
-				c.logger.Warning("failed to connect:", err)
+				c.logger.Warning("failed to preconnect:", err)
 				continue
 			}
 			select {
@@ -375,7 +388,7 @@ func (c *Client) preconnect() (net.Conn, error) {
 	if err != nil {
 		return nil, errors.Wrap(err, "failed to create request for preconnect")
 	}
-	garbage := make([]byte, 128+newMathRand().Intn(2*1024))
+	garbage := make([]byte, 512+newMathRand().Intn(2*1024))
 	req.Header.Set("Obfuscation", hex.EncodeToString(garbage))
 	err = req.Write(conn)
 	if err != nil {
