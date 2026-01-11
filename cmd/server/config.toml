@@ -1,0 +1,19 @@
+[common]
+  pwd_hash = "" # execute "server -ph your_password"
+  log_path = "mix-socks.log"
+
+[http]
+  network   = "tcp"
+  address   = ":2019"
+  max_conns = 1000
+  timeout   = "1m"
+
+[tls]
+  mode = "acme"  # "acme" or "static"
+
+  [tls.acme]
+    domains = ["example.com"]
+
+  [tls.static]
+    cert_path = ""
+    cert_key  = ""
