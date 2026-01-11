@@ -1,5 +1,5 @@
 [common]
-  pwd_hash = "" # execute "server -ph your_password"
+  pwd_hash = "" # execute "client -ph your_password"
   log_path = "mix-socks.log"
 
 [http]
