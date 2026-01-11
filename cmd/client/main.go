@@ -2,6 +2,8 @@ package main
 
 import (
 	"bytes"
+	"crypto/sha256"
+	"encoding/hex"
 	"flag"
 	"fmt"
 	"os"
@@ -13,15 +15,23 @@ import (
 )
 
 var (
-	cfgPath string
+	cfgPath  string
+	password string
 )
 
 func init() {
 	flag.StringVar(&cfgPath, "cfg", "config.toml", "set configuration file path")
+	flag.StringVar(&password, "ph", "", "calculate password hash for config")
 	flag.Parse()
 }
 
 func main() {
+	if password != "" {
+		h := sha256.Sum256([]byte(password))
+		fmt.Println(hex.EncodeToString(h[:]))
+		return
+	}
+
 	// read ClientConfig from config file
 	cfgData, err := os.ReadFile(cfgPath) // #nosec
 	checkError(err)
