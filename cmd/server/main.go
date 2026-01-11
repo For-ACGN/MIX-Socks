@@ -3,8 +3,6 @@ package main
 import (
 	"bytes"
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"flag"
 	"fmt"
 	"os"
@@ -18,14 +16,12 @@ import (
 )
 
 var (
-	cfgPath  string
-	password string
-	setCap   bool
+	cfgPath string
+	setCap  bool
 )
 
 func init() {
 	flag.StringVar(&cfgPath, "cfg", "config.toml", "set configuration file path")
-	flag.StringVar(&password, "ph", "", "calculate password hash for config")
 	flag.BoolVar(&setCap, "sc", false, "setcap cap_net_bind_service, acme mode need this")
 	flag.Parse()
 }
@@ -34,16 +30,11 @@ func main() {
 	if setCap {
 		path, err := os.Executable()
 		checkError(err)
-		cmd := exec.Command("sudo", "setcap 'cap_net_bind_service=+ep' "+path)
+		cmd := exec.Command("setcap", "cap_net_bind_service=+ep", path)
 		cmd.Stdout = os.Stdout
 		cmd.Stderr = os.Stderr
 		err = cmd.Run()
 		checkError(err)
-		return
-	}
-	if password != "" {
-		h := sha256.Sum256([]byte(password))
-		fmt.Println(hex.EncodeToString(h[:]))
 		return
 	}
 
@@ -62,11 +53,6 @@ func main() {
 
 	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 	defer cancel()
-	go func() {
-		<-signalCh
-		cancel()
-	}()
-
 	server, err := msocks.NewServer(ctx, &config)
 	checkError(err)
 	go func() {
