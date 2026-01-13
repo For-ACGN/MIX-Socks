@@ -28,11 +28,14 @@ const (
 	defaultServerTimeout = 15 * time.Second
 )
 
+var nextProtos = []string{"h2", "http/1.1"}
+
 // Server is a SOCKS-over-HTTPS server.
 type Server struct {
 	logger *logger
 
 	passHash string
+	timeout  time.Duration
 
 	listener net.Listener
 	server   *http.Server
@@ -48,16 +51,31 @@ func NewServer(ctx context.Context, config *ServerConfig) (*Server, error) {
 	if passHash == "" {
 		return nil, errors.New("must set password hash")
 	}
+	if len(passHash) != 64 {
+		return nil, errors.New("invalid password hash")
+	}
 	pathHash := passHash[:8] + passHash[32:32+8]
 	network := config.HTTP.Network
 	address := config.HTTP.Address
-	var listener net.Listener
+	listener, err := net.Listen(network, address)
+	if err != nil {
+		return nil, errors.Wrap(err, "failed to listen")
+	}
+	// apply maximum connections
+	maxConns := config.HTTP.MaxConns
+	if maxConns < 1 {
+		maxConns = defaultMaxConns
+	}
+	listener = netutil.LimitListener(listener, maxConns)
 	switch config.TLS.Mode {
 	case TLSModeACME:
 		cfg := autocert.Config{
 			Domains: config.TLS.ACME.Domains,
+			TLSConfig: &tls.Config{
+				NextProtos: nextProtos,
+			},
 		}
-		listener, err = autocert.ListenContext(ctx, network, address, &cfg)
+		listener, err = autocert.NewListener(ctx, listener, network, &cfg)
 		if err != nil {
 			return nil, err
 		}
@@ -69,20 +87,12 @@ func NewServer(ctx context.Context, config *ServerConfig) (*Server, error) {
 		}
 		cfg := tls.Config{
 			Certificates: []tls.Certificate{cert},
+			NextProtos:   nextProtos,
 		}
-		listener, err = tls.Listen(network, address, &cfg)
-		if err != nil {
-			return nil, err
-		}
+		listener = tls.NewListener(listener, &cfg)
 	default:
 		return nil, fmt.Errorf("unknown TLS mode: %s", config.TLS.Mode)
 	}
-	// apply maximum connections
-	maxConns := config.HTTP.MaxConns
-	if maxConns < 1 {
-		maxConns = defaultMaxConns
-	}
-	listener = netutil.LimitListener(listener, maxConns)
 	// create http server
 	timeout := time.Duration(config.HTTP.Timeout)
 	if timeout < time.Second {
@@ -98,6 +108,7 @@ func NewServer(ctx context.Context, config *ServerConfig) (*Server, error) {
 	server := Server{
 		logger:   logger,
 		passHash: passHash,
+		timeout:  timeout,
 		listener: listener,
 		server:   &srv,
 	}
@@ -171,6 +182,9 @@ func (s *Server) handleConnect(w http.ResponseWriter, r *http.Request) {
 			_ = conn.Close()
 		}
 	}()
+
+	// reset deadline that server set
+	_ = conn.SetDeadline(time.Now().Add(s.timeout))
 
 	// negotiate session key
 	sessionKey, serverPub, err := s.negotiate(r)
