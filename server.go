@@ -24,13 +24,15 @@ const (
 )
 
 const (
-	defaultMaxConns      = 1000
+	defaultMaxConns      = 10000
 	defaultServerTimeout = 15 * time.Second
 )
 
 // Server is a SOCKS-over-HTTPS server.
 type Server struct {
 	logger *logger
+
+	passHash string
 
 	listener net.Listener
 	server   *http.Server
@@ -42,10 +44,11 @@ func NewServer(ctx context.Context, config *ServerConfig) (*Server, error) {
 	if err != nil {
 		return nil, errors.Wrap(err, "failed to open log file")
 	}
-	hash := config.Common.PassHash
-	if hash == "" {
+	passHash := config.Common.PassHash
+	if passHash == "" {
 		return nil, errors.New("must set password hash")
 	}
+	pathHash := passHash[:8] + passHash[32:32+8]
 	network := config.HTTP.Network
 	address := config.HTTP.Address
 	var listener net.Listener
@@ -90,19 +93,19 @@ func NewServer(ctx context.Context, config *ServerConfig) (*Server, error) {
 		ReadHeaderTimeout: timeout,
 		ReadTimeout:       timeout,
 		WriteTimeout:      timeout,
-		IdleTimeout:       timeout,
 		Handler:           serverMux,
 	}
 	server := Server{
 		logger:   logger,
+		passHash: passHash,
 		listener: listener,
 		server:   &srv,
 	}
 	serverMux.HandleFunc("/", server.handleIndex)
-	serverMux.HandleFunc(fmt.Sprintf("/%s/login", hash), server.handleLogin)
-	serverMux.HandleFunc(fmt.Sprintf("/%s/logout", hash), server.handleLogout)
-	serverMux.HandleFunc(fmt.Sprintf("/%s/ping", hash), server.handlePing)
-	serverMux.HandleFunc(fmt.Sprintf("/%s/connect", hash), server.handleConnect)
+	serverMux.HandleFunc(fmt.Sprintf("/%s/login", pathHash), server.handleLogin)
+	serverMux.HandleFunc(fmt.Sprintf("/%s/logout", pathHash), server.handleLogout)
+	serverMux.HandleFunc(fmt.Sprintf("/%s/ping", pathHash), server.handlePing)
+	serverMux.HandleFunc(fmt.Sprintf("/%s/connect", pathHash), server.handleConnect)
 	return &server, nil
 }
 
@@ -114,16 +117,32 @@ func (s *Server) handleIndex(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
+	if r.Header.Get("Pass-Hash") != s.passHash {
+		w.WriteHeader(http.StatusForbidden)
+		return
+	}
+	garbage := make([]byte, 128+newMathRand().Intn(8*1024))
+	w.Header().Set("Obfuscation", hex.EncodeToString(garbage))
 	w.WriteHeader(http.StatusOK)
 	s.logger.Infof("user from %s is login", r.RemoteAddr)
 }
 
 func (s *Server) handleLogout(w http.ResponseWriter, r *http.Request) {
+	if r.Header.Get("Pass-Hash") != s.passHash {
+		w.WriteHeader(http.StatusForbidden)
+		return
+	}
+	garbage := make([]byte, 128+newMathRand().Intn(8*1024))
+	w.Header().Set("Obfuscation", hex.EncodeToString(garbage))
 	w.WriteHeader(http.StatusOK)
 	s.logger.Infof("user from %s is logout", r.RemoteAddr)
 }
 
-func (s *Server) handlePing(w http.ResponseWriter, _ *http.Request) {
+func (s *Server) handlePing(w http.ResponseWriter, r *http.Request) {
+	if r.Header.Get("Pass-Hash") != s.passHash {
+		w.WriteHeader(http.StatusForbidden)
+		return
+	}
 	garbage := make([]byte, 512+newMathRand().Intn(32*1024))
 	header := w.Header()
 	header.Set("Obfuscation", hex.EncodeToString(garbage))
@@ -132,6 +151,10 @@ func (s *Server) handlePing(w http.ResponseWriter, _ *http.Request) {
 }
 
 func (s *Server) handleConnect(w http.ResponseWriter, r *http.Request) {
+	if r.Header.Get("Pass-Hash") != s.passHash {
+		w.WriteHeader(http.StatusForbidden)
+		return
+	}
 	var success bool
 	hijacker, ok := w.(http.Hijacker)
 	if !ok {
