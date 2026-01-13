@@ -25,7 +25,7 @@ const (
 
 const (
 	defaultMaxConns      = 1000
-	defaultServerTimeout = time.Minute
+	defaultServerTimeout = 15 * time.Second
 )
 
 // Server is a SOCKS-over-HTTPS server.
@@ -41,6 +41,10 @@ func NewServer(ctx context.Context, config *ServerConfig) (*Server, error) {
 	logger, err := newLogger(config.Common.LogPath)
 	if err != nil {
 		return nil, errors.Wrap(err, "failed to open log file")
+	}
+	hash := config.Common.PassHash
+	if hash == "" {
+		return nil, errors.New("must set password hash")
 	}
 	network := config.HTTP.Network
 	address := config.HTTP.Address
@@ -94,7 +98,6 @@ func NewServer(ctx context.Context, config *ServerConfig) (*Server, error) {
 		listener: listener,
 		server:   &srv,
 	}
-	hash := config.Common.PassHash
 	serverMux.HandleFunc("/", server.handleIndex)
 	serverMux.HandleFunc(fmt.Sprintf("/%s/login", hash), server.handleLogin)
 	serverMux.HandleFunc(fmt.Sprintf("/%s/logout", hash), server.handleLogout)
@@ -120,8 +123,8 @@ func (s *Server) handleLogout(w http.ResponseWriter, r *http.Request) {
 	s.logger.Infof("user from %s is logout", r.RemoteAddr)
 }
 
-func (s *Server) handlePing(w http.ResponseWriter, r *http.Request) {
-	garbage := make([]byte, newMathRand().Intn(32*1024))
+func (s *Server) handlePing(w http.ResponseWriter, _ *http.Request) {
+	garbage := make([]byte, 512+newMathRand().Intn(32*1024))
 	header := w.Header()
 	header.Set("Obfuscation", hex.EncodeToString(garbage))
 	header.Set("Pong", "Ping-Pong")
@@ -155,7 +158,7 @@ func (s *Server) handleConnect(w http.ResponseWriter, r *http.Request) {
 	header.Set("Public-Key", hex.EncodeToString(serverPub))
 
 	// append garbage data
-	garbage := make([]byte, newMathRand().Intn(16*1024))
+	garbage := make([]byte, 256+newMathRand().Intn(16*1024))
 	header.Set("Obfuscation", hex.EncodeToString(garbage))
 
 	// try to connect target
@@ -176,7 +179,6 @@ func (s *Server) handleConnect(w http.ResponseWriter, r *http.Request) {
 
 	// write response
 	resp := http.Response{}
-	resp.Status = "200 OK"
 	resp.StatusCode = http.StatusOK
 	resp.Proto = "HTTP/1.1"
 	resp.ProtoMajor = 1
