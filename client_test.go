@@ -6,9 +6,9 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"testing"
-	"time"
 
 	"github.com/stretchr/testify/require"
 )
@@ -136,7 +136,20 @@ func TestClient_Serve(t *testing.T) {
 		require.NoError(t, err)
 	}()
 
-	time.Sleep(time.Second)
+	transport := http.Transport{
+		Proxy: func(_ *http.Request) (*url.URL, error) {
+			return url.Parse("http://127.0.0.1:2020/")
+		},
+	}
+	httpClient := http.Client{
+		Transport: &transport,
+	}
+	resp, err := httpClient.Get("https://github.com/")
+	require.NoError(t, err)
+	data, err := io.ReadAll(resp.Body)
+	require.NoError(t, err)
+	fmt.Println(len(data))
+	fmt.Println(string(data))
 
 	err = client.Close()
 	require.NoError(t, err)
@@ -161,6 +174,7 @@ func TestClient_connect(t *testing.T) {
 	}()
 
 	clientCfg := testBuildClientConfig()
+	clientCfg.Client.PreConns = 1
 	client, err := NewClient(clientCfg)
 	require.NoError(t, err)
 	require.NotNil(t, client)
@@ -182,6 +196,7 @@ func TestClient_connect(t *testing.T) {
 	require.NoError(t, err)
 	data, err := io.ReadAll(resp.Body)
 	require.NoError(t, err)
+	fmt.Println(len(data))
 	fmt.Println(string(data))
 
 	err = client.Close()
