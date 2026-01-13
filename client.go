@@ -23,7 +23,7 @@ import (
 
 const (
 	defaultPreConns      = 32
-	defaultClientTimeout = 30 * time.Second
+	defaultClientTimeout = 10 * time.Second
 )
 
 // Client is a SoH client with SOCKS4, SOCKS5 and HTTP proxy server.
@@ -31,6 +31,7 @@ type Client struct {
 	logger *logger
 
 	passHash string
+	pathHash string
 	timeout  time.Duration
 	preConns int
 
@@ -60,6 +61,7 @@ func NewClient(config *ClientConfig) (*Client, error) {
 	}
 	h := sha256.Sum256([]byte(config.Common.Password))
 	passHash := hex.EncodeToString(h[:])
+	pathHash := passHash[:8] + passHash[32:32+8]
 	preConns := config.Client.PreConns
 	if preConns < 1 {
 		preConns = defaultPreConns
@@ -101,6 +103,7 @@ func NewClient(config *ClientConfig) (*Client, error) {
 		logger: logger,
 
 		passHash: passHash,
+		pathHash: pathHash,
 		timeout:  timeout,
 		preConns: preConns,
 
@@ -120,13 +123,21 @@ func NewClient(config *ClientConfig) (*Client, error) {
 }
 
 func (c *Client) buildURL(path string) string {
-	return fmt.Sprintf("https://%s/%s/%s", c.serverAddr, c.passHash, path)
+	return fmt.Sprintf("https://%s/%s/%s", c.serverAddr, c.pathHash, path)
 }
 
 // Login is used to log in to server.
 func (c *Client) Login() error {
 	defer c.client.CloseIdleConnections()
-	resp, err := c.client.Get(c.buildURL("login"))
+	req, err := http.NewRequestWithContext(c.ctx, http.MethodGet, c.buildURL("login"), nil)
+	if err != nil {
+		return errors.Wrap(err, "failed to create request for login")
+	}
+	garbage := make([]byte, 128+newMathRand().Intn(4*1024))
+	header := req.Header
+	header.Set("Pass-Hash", c.passHash)
+	header.Set("Obfuscation", hex.EncodeToString(garbage))
+	resp, err := c.client.Do(req)
 	if err != nil {
 		return errors.Wrap(err, "failed to log in")
 	}
@@ -143,7 +154,15 @@ func (c *Client) Login() error {
 // Logout is used to log out to server.
 func (c *Client) Logout() error {
 	defer c.client.CloseIdleConnections()
-	resp, err := c.client.Get(c.buildURL("logout"))
+	req, err := http.NewRequestWithContext(c.ctx, http.MethodGet, c.buildURL("logout"), nil)
+	if err != nil {
+		return errors.Wrap(err, "failed to create request for logout")
+	}
+	garbage := make([]byte, 128+newMathRand().Intn(4*1024))
+	header := req.Header
+	header.Set("Pass-Hash", c.passHash)
+	header.Set("Obfuscation", hex.EncodeToString(garbage))
+	resp, err := c.client.Do(req)
 	if err != nil {
 		return errors.Wrap(err, "failed to log out")
 	}
@@ -260,12 +279,13 @@ func (c *Client) connect(network, address string) (net.Conn, error) {
 		return nil, errors.Wrap(err, "failed to x25519 with base point")
 	}
 	// send connect request
-	req, err := http.NewRequestWithContext(c.ctx, "GET", c.buildURL("connect"), nil)
+	req, err := http.NewRequestWithContext(c.ctx, http.MethodGet, c.buildURL("connect"), nil)
 	if err != nil {
 		return nil, errors.Wrap(err, "failed to create request for connect")
 	}
 	garbage := make([]byte, 256+newMathRand().Intn(2*1024))
 	header := req.Header
+	header.Set("Pass-Hash", c.passHash)
 	header.Set("Public-Key", hex.EncodeToString(clientPub))
 	header.Set("Obfuscation", hex.EncodeToString(garbage))
 	header.Set("Network", network)
@@ -281,6 +301,7 @@ func (c *Client) connect(network, address string) (net.Conn, error) {
 		return nil, errors.Wrap(err, "failed to read response")
 	}
 	defer func() {
+		_, _ = io.Copy(io.Discard, resp.Body)
 		_ = resp.Body.Close()
 	}()
 	if resp.StatusCode != http.StatusOK {
@@ -384,12 +405,14 @@ func (c *Client) preconnect() (net.Conn, error) {
 	}
 	// apply timeout
 	_ = conn.SetDeadline(time.Now().Add(c.timeout))
-	req, err := http.NewRequestWithContext(c.ctx, "GET", c.buildURL("ping"), nil)
+	req, err := http.NewRequestWithContext(c.ctx, http.MethodGet, c.buildURL("ping"), nil)
 	if err != nil {
 		return nil, errors.Wrap(err, "failed to create request for preconnect")
 	}
 	garbage := make([]byte, 512+newMathRand().Intn(2*1024))
-	req.Header.Set("Obfuscation", hex.EncodeToString(garbage))
+	header := req.Header
+	header.Set("Pass-Hash", c.passHash)
+	header.Set("Obfuscation", hex.EncodeToString(garbage))
 	err = req.Write(conn)
 	if err != nil {
 		return nil, errors.Wrap(err, "failed to send request for preconnect")
