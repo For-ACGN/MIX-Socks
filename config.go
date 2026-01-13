@@ -14,8 +14,8 @@ type ServerConfig struct {
 	HTTP struct {
 		Network  string   `toml:"network"`
 		Address  string   `toml:"address"`
-		MaxConns int      `toml:"max_conns"`
 		Timeout  duration `toml:"timeout"`
+		MaxConns int      `toml:"max_conns"`
 	} `toml:"http"`
 
 	TLS struct {
@@ -40,8 +40,8 @@ type ClientConfig struct {
 	} `toml:"common"`
 
 	Client struct {
-		PreConns int      `toml:"pre_conns"`
 		Timeout  duration `toml:"timeout"`
+		PreConns int      `toml:"pre_conns"`
 	} `toml:"client"`
 
 	Server struct {
