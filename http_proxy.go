@@ -2,10 +2,10 @@ package msocks
 
 import (
 	"bufio"
+	"io"
 	"net"
 	"net/http"
-
-	"github.com/pkg/errors"
+	"time"
 )
 
 func (c *Client) serveHTTPRequest(conn net.Conn, reader *bufio.Reader) (net.Conn, error) {
@@ -19,8 +19,8 @@ func (c *Client) serveHTTPRequest(conn net.Conn, reader *bufio.Reader) (net.Conn
 	return c.serveHTTPProxy(conn, req)
 }
 
-func (c *Client) serveHTTPConnect(conn net.Conn, req *http.Request) (net.Conn, error) {
-	tun, err := c.connect("tcp", req.URL.Host)
+func (c *Client) serveHTTPConnect(conn net.Conn, r *http.Request) (net.Conn, error) {
+	tun, err := c.connect("tcp", r.URL.Host)
 	if err != nil {
 		resp := http.Response{}
 		resp.StatusCode = http.StatusBadGateway
@@ -44,6 +44,33 @@ func (c *Client) serveHTTPConnect(conn net.Conn, req *http.Request) (net.Conn, e
 	return tun, nil
 }
 
-func (c *Client) serveHTTPProxy(conn net.Conn, req *http.Request) (net.Conn, error) {
-	return nil, errors.New("not implemented")
+func (c *Client) serveHTTPProxy(conn net.Conn, r *http.Request) (net.Conn, error) {
+	resp := http.Response{}
+	resp.StatusCode = http.StatusBadGateway
+	resp.Proto = "HTTP/1.1"
+	resp.ProtoMajor = 1
+	resp.ProtoMinor = 1
+
+	port := r.URL.Port()
+	if port == "" {
+		port = "80"
+	}
+	address := net.JoinHostPort(r.URL.Host, port)
+	tun, err := c.connect("tcp", address)
+	if err != nil {
+		_ = resp.Write(conn)
+		return nil, err
+	}
+	defer func() { _ = tun.Close() }()
+
+	r.Close = true
+	err = r.Write(tun)
+	if err != nil {
+		_ = resp.Write(conn)
+		return nil, err
+	}
+
+	_ = tun.SetDeadline(time.Time{})
+	_, _ = io.Copy(conn, tun)
+	return nil, nil
 }
