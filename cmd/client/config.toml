@@ -3,16 +3,16 @@
   log_path = "mix-socks.log"
 
 [client]
-  timeout   = "1m"
-  pre_conns = 64
+  timeout   = "10s"
+  pre_conns = 32
 
 [server]
   network = "tcp"
-  address = "127.0.0.1:2019"
+  address = "1.1.1.1:443"
   root_ca = ""
 
 [front]
   network  = "tcp"
-  address  = "127.0.0.1:2020"
+  address  = "127.0.0.1:2026"
   username = ""
   password = ""
