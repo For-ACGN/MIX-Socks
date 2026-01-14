@@ -16,3 +16,6 @@
   address  = "127.0.0.1:2026"
   username = ""
   password = ""
+
+[forward]
+  buffer_size = 4096
