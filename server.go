@@ -1,6 +1,7 @@
 package msocks
 
 import (
+	"bytes"
 	"context"
 	"crypto/rand"
 	"crypto/tls"
@@ -129,9 +130,17 @@ func (s *Server) handleIndex(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusOK)
 	_, _ = w.Write([]byte("hello: "))
 	_, _ = w.Write([]byte(r.RemoteAddr))
-	s.logger.Infof("income request: %s", r.RemoteAddr)
-
-	// TODO print
+	// print income request
+	buf := bytes.NewBuffer(make([]byte, 0, 512))
+	_, _ = fmt.Fprintf(buf, "Remote: %s\n", r.RemoteAddr)
+	_, _ = fmt.Fprintf(buf, "%s %s %s", r.Method, r.RequestURI, r.Proto) // header line
+	_, _ = fmt.Fprintf(buf, "\nHost: %s", r.Host)                        // dump host
+	// dump other header
+	for k, v := range r.Header {
+		_, _ = fmt.Fprintf(buf, "\n%s: %s", k, v[0])
+	}
+	buf.WriteString("\n")
+	s.logger.Info(buf)
 }
 
 func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
