@@ -2,8 +2,13 @@ package msocks
 
 import (
 	"bufio"
+	"crypto/subtle"
+	"encoding/base64"
+	"errors"
+	"fmt"
 	"net"
 	"net/http"
+	"strings"
 )
 
 func (c *Client) serveHTTPRequest(conn net.Conn, reader *bufio.Reader) (net.Conn, error) {
@@ -11,10 +16,66 @@ func (c *Client) serveHTTPRequest(conn net.Conn, reader *bufio.Reader) (net.Conn
 	if err != nil {
 		return nil, err
 	}
+	if !c.httpProxyAuthenticate(conn, req) {
+		return nil, errors.New("http proxy authentication failed")
+	}
 	if req.Method == http.MethodConnect {
 		return c.serveHTTPConnect(conn, req)
 	}
 	return c.serveHTTPProxy(conn, reader, req)
+}
+
+func (c *Client) httpProxyAuthenticate(conn net.Conn, req *http.Request) bool {
+	if c.frontUsername == "" && c.frontPassword == "" {
+		return true
+	}
+	authInfo := strings.Split(req.Header.Get("Proxy-Authorization"), " ")
+	if len(authInfo) != 2 {
+		c.httpProxyFailedToAuth(conn)
+		return false
+	}
+	authMethod := authInfo[0]
+	authBase64 := authInfo[1]
+	switch authMethod {
+	case "Basic":
+		auth, err := base64.StdEncoding.DecodeString(authBase64)
+		if err != nil {
+			c.httpProxyFailedToAuth(conn)
+			return false
+		}
+		userPass := strings.SplitN(string(auth), ":", 2)
+		if len(userPass) == 1 {
+			userPass = append(userPass, "")
+		}
+		user := []byte(userPass[0])
+		pass := []byte(userPass[1])
+		eUser := []byte(c.frontUsername)
+		ePass := []byte(c.frontPassword)
+		userErr := subtle.ConstantTimeCompare(user, eUser) != 1
+		passErr := subtle.ConstantTimeCompare(pass, ePass) != 1
+		if userErr || passErr {
+			userInfo := fmt.Sprintf("%s:%s", user, pass)
+			c.logger.Warning("invalid username or password:", userInfo)
+			c.httpProxyFailedToAuth(conn)
+			return false
+		}
+		return true
+	default:
+		c.logger.Warning("unsupported authentication method:", authMethod)
+		c.httpProxyFailedToAuth(conn)
+		return false
+	}
+}
+
+func (c *Client) httpProxyFailedToAuth(conn net.Conn) {
+	resp := http.Response{}
+	resp.StatusCode = http.StatusProxyAuthRequired
+	resp.Proto = "HTTP/1.1"
+	resp.ProtoMajor = 1
+	resp.ProtoMinor = 1
+	resp.Header = make(http.Header)
+	resp.Header.Set("Proxy-Authenticate", "Basic realm=\"Proxy\"")
+	_ = resp.Write(conn)
 }
 
 func (c *Client) serveHTTPConnect(conn net.Conn, req *http.Request) (net.Conn, error) {
