@@ -30,10 +30,11 @@ const (
 type Client struct {
 	logger *logger
 
-	passHash string
-	pathHash string
-	timeout  time.Duration
-	preConns int
+	passHash   string
+	pathHash   string
+	timeout    time.Duration
+	preConns   int
+	bufferSize int
 
 	serverNet  string
 	serverAddr string
@@ -62,13 +63,17 @@ func NewClient(config *ClientConfig) (*Client, error) {
 	h := sha256.Sum256([]byte(config.Common.Password))
 	passHash := hex.EncodeToString(h[:])
 	pathHash := passHash[:8] + passHash[32:32+8]
+	timeout := time.Duration(config.Client.Timeout)
+	if timeout < time.Second {
+		timeout = defaultClientTimeout
+	}
 	preConns := config.Client.PreConns
 	if preConns < 1 {
 		preConns = defaultPreConns
 	}
-	timeout := time.Duration(config.Client.Timeout)
-	if timeout < time.Second {
-		timeout = defaultClientTimeout
+	bufferSize := config.Forward.BufferSize
+	if bufferSize < 1 {
+		bufferSize = defaultCopyBufferSize
 	}
 	// prepare tls config for client
 	tlsConfig := &tls.Config{}
@@ -102,10 +107,11 @@ func NewClient(config *ClientConfig) (*Client, error) {
 	client := Client{
 		logger: logger,
 
-		passHash: passHash,
-		pathHash: pathHash,
-		timeout:  timeout,
-		preConns: preConns,
+		passHash:   passHash,
+		pathHash:   pathHash,
+		timeout:    timeout,
+		preConns:   preConns,
+		bufferSize: bufferSize,
 
 		serverNet:  config.Server.Network,
 		serverAddr: config.Server.Address,
@@ -229,7 +235,6 @@ func (c *Client) handleConn(conn net.Conn) {
 	reader := bufio.NewReader(conn)
 	protocol, err := reader.Peek(1)
 	if err != nil {
-		c.logger.Warningf("failed to peek first byte: %s", err)
 		return
 	}
 	var tun net.Conn
@@ -245,18 +250,24 @@ func (c *Client) handleConn(conn net.Conn) {
 		c.logger.Warningf("failed to create tunnel: %s", err)
 		return
 	}
+	// process common HTTP request
+	if tun == nil {
+		return
+	}
 
-	// clear deadline
+	// clear deadline about timeout
 	_ = conn.SetDeadline(time.Time{})
 
 	// start forward connection data
 	go func() {
 		defer func() { _ = conn.Close() }()
-		_, _ = io.Copy(conn, tun)
+		buffer := make([]byte, c.bufferSize)
+		_, _ = io.CopyBuffer(conn, tun, buffer)
 	}()
 	go func() {
 		defer func() { _ = tun.Close() }()
-		_, _ = io.Copy(tun, conn)
+		buffer := make([]byte, c.bufferSize)
+		_, _ = io.CopyBuffer(tun, conn, buffer)
 	}()
 	success = true
 }
