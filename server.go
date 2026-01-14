@@ -34,8 +34,9 @@ var nextProtos = []string{"h2", "http/1.1"}
 type Server struct {
 	logger *logger
 
-	passHash string
-	timeout  time.Duration
+	passHash   string
+	timeout    time.Duration
+	bufferSize int
 
 	listener net.Listener
 	server   *http.Server
@@ -55,6 +56,18 @@ func NewServer(ctx context.Context, config *ServerConfig) (*Server, error) {
 		return nil, errors.New("invalid password hash")
 	}
 	pathHash := passHash[:8] + passHash[32:32+8]
+	timeout := time.Duration(config.HTTP.Timeout)
+	if timeout < time.Second {
+		timeout = defaultServerTimeout
+	}
+	maxConns := config.HTTP.MaxConns
+	if maxConns < 1 {
+		maxConns = defaultMaxConns
+	}
+	bufferSize := config.Forward.BufferSize
+	if bufferSize < 1 {
+		bufferSize = defaultCopyBufferSize
+	}
 	network := config.HTTP.Network
 	address := config.HTTP.Address
 	listener, err := net.Listen(network, address)
@@ -62,10 +75,6 @@ func NewServer(ctx context.Context, config *ServerConfig) (*Server, error) {
 		return nil, errors.Wrap(err, "failed to listen")
 	}
 	// apply maximum connections
-	maxConns := config.HTTP.MaxConns
-	if maxConns < 1 {
-		maxConns = defaultMaxConns
-	}
 	listener = netutil.LimitListener(listener, maxConns)
 	switch config.TLS.Mode {
 	case TLSModeACME:
@@ -94,21 +103,17 @@ func NewServer(ctx context.Context, config *ServerConfig) (*Server, error) {
 		return nil, fmt.Errorf("unknown TLS mode: %s", config.TLS.Mode)
 	}
 	// create http server
-	timeout := time.Duration(config.HTTP.Timeout)
-	if timeout < time.Second {
-		timeout = defaultServerTimeout
-	}
 	serverMux := http.NewServeMux()
 	srv := http.Server{
-		ReadHeaderTimeout: timeout,
-		ReadTimeout:       timeout,
-		WriteTimeout:      timeout,
-		Handler:           serverMux,
+		Handler: serverMux,
 	}
 	server := Server{
-		logger:   logger,
-		passHash: passHash,
-		timeout:  timeout,
+		logger: logger,
+
+		passHash:   passHash,
+		timeout:    timeout,
+		bufferSize: bufferSize,
+
 		listener: listener,
 		server:   &srv,
 	}
@@ -125,6 +130,8 @@ func (s *Server) handleIndex(w http.ResponseWriter, r *http.Request) {
 	_, _ = w.Write([]byte("hello: "))
 	_, _ = w.Write([]byte(r.RemoteAddr))
 	s.logger.Infof("income request: %s", r.RemoteAddr)
+
+	// TODO print
 }
 
 func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
@@ -241,11 +248,13 @@ func (s *Server) handleConnect(w http.ResponseWriter, r *http.Request) {
 	}
 	go func() {
 		defer func() { _ = target.Close() }()
-		_, _ = io.Copy(target, tun)
+		buffer := make([]byte, s.bufferSize)
+		_, _ = io.CopyBuffer(target, tun, buffer)
 	}()
 	go func() {
 		defer func() { _ = tun.Close() }()
-		_, _ = io.Copy(tun, target)
+		buffer := make([]byte, s.bufferSize)
+		_, _ = io.CopyBuffer(tun, target, buffer)
 	}()
 	success = true
 }
