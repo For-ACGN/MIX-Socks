@@ -4,6 +4,8 @@ import (
 	"time"
 )
 
+const defaultCopyBufferSize = 4096
+
 // ServerConfig contains configurations for proxy server.
 type ServerConfig struct {
 	Common struct {
@@ -30,6 +32,10 @@ type ServerConfig struct {
 			Key  string `toml:"key_path"`
 		} `toml:"static"`
 	} `toml:"tls"`
+
+	Forward struct {
+		BufferSize int `toml:"buffer_size"`
+	} `toml:"forward"`
 }
 
 // ClientConfig contains configurations for proxy client.
@@ -56,6 +62,10 @@ type ClientConfig struct {
 		Username string `toml:"username"`
 		Password string `toml:"password"`
 	} `toml:"front"`
+
+	Forward struct {
+		BufferSize int `toml:"buffer_size"`
+	} `toml:"forward"`
 } // #nosec
 
 // duration is patch for toml v2.
