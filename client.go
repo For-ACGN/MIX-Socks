@@ -98,9 +98,16 @@ func NewClient(config *ClientConfig) (*Client, error) {
 	if err != nil {
 		return nil, errors.Wrap(err, "failed to listen for the front server")
 	}
+	serverNetwork := config.Server.Network
+	dialContext := func(ctx context.Context, _, address string) (net.Conn, error) {
+		dialer := net.Dialer{}
+		dialer.Timeout = timeout
+		return dialer.DialContext(ctx, serverNetwork, address)
+	}
 	httpClient := &http.Client{
 		Transport: &http.Transport{
 			TLSClientConfig: tlsConfig,
+			DialContext:     dialContext,
 		},
 		Timeout: timeout,
 	}
@@ -250,13 +257,15 @@ func (c *Client) handleConn(conn net.Conn) {
 		c.logger.Warningf("failed to create tunnel: %s", err)
 		return
 	}
-	// process common HTTP request
-	if tun == nil {
-		return
-	}
 
 	// clear deadline about timeout
 	_ = conn.SetDeadline(time.Time{})
+
+	// process common HTTP request
+	if tun == nil {
+		success = true
+		return
+	}
 
 	// start forward connection data
 	go func() {
@@ -309,7 +318,7 @@ func (c *Client) connect(network, address string) (net.Conn, error) {
 	reader := bufio.NewReader(conn)
 	resp, err := http.ReadResponse(reader, req)
 	if err != nil {
-		return nil, errors.Wrap(err, "failed to read response")
+		return nil, errors.Wrap(err, "failed to read response about connect")
 	}
 	defer func() {
 		_, _ = io.Copy(io.Discard, resp.Body)
@@ -430,7 +439,7 @@ func (c *Client) preconnect() (net.Conn, error) {
 	}
 	resp, err := http.ReadResponse(bufio.NewReader(conn), req)
 	if err != nil {
-		return nil, errors.Wrap(err, "failed to read response")
+		return nil, errors.Wrap(err, "failed to read response about preconnect")
 	}
 	defer func() {
 		_, _ = io.Copy(io.Discard, resp.Body)
