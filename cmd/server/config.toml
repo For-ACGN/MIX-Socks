@@ -4,9 +4,9 @@
 
 [http]
   network   = "tcp"
-  address   = ":2019"
-  timeout   = "1m"
-  max_conns = 1000
+  address   = ":443"
+  timeout   = "15s"
+  max_conns = 10000
 
 [tls]
   mode = "acme"  # "acme" or "static"
