@@ -13,6 +13,7 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"runtime"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -35,6 +36,7 @@ type Client struct {
 	timeout    time.Duration
 	preConns   int
 	bufferSize int
+	dnsServer  string
 
 	serverNet  string
 	serverAddr string
@@ -98,9 +100,10 @@ func NewClient(config *ClientConfig) (*Client, error) {
 	if err != nil {
 		return nil, errors.Wrap(err, "failed to listen for the front server")
 	}
+	dnsServer := config.Android.DNSServer
 	serverNetwork := config.Server.Network
 	dialContext := func(ctx context.Context, _, address string) (net.Conn, error) {
-		dialer := net.Dialer{}
+		dialer := buildDialer(dnsServer)
 		dialer.Timeout = timeout
 		return dialer.DialContext(ctx, serverNetwork, address)
 	}
@@ -119,6 +122,7 @@ func NewClient(config *ClientConfig) (*Client, error) {
 		timeout:    timeout,
 		preConns:   preConns,
 		bufferSize: bufferSize,
+		dnsServer:  dnsServer,
 
 		serverNet:  config.Server.Network,
 		serverAddr: config.Server.Address,
@@ -133,6 +137,22 @@ func NewClient(config *ClientConfig) (*Client, error) {
 	}
 	client.ctx, client.cancel = context.WithCancel(context.Background())
 	return &client, nil
+}
+
+func buildDialer(dns string) *net.Dialer {
+	if runtime.GOOS != "android" {
+		return new(net.Dialer)
+	}
+	dialer := net.Dialer{
+		Timeout: 3 * time.Second,
+	}
+	resolver := &net.Resolver{
+		PreferGo: true,
+		Dial: func(ctx context.Context, network, _ string) (net.Conn, error) {
+			return dialer.DialContext(ctx, network, dns)
+		},
+	}
+	return &net.Dialer{Resolver: resolver}
 }
 
 func (c *Client) buildURL(path string) string {
@@ -417,8 +437,10 @@ func (c *Client) connector() {
 
 func (c *Client) preconnect() (net.Conn, error) {
 	dialer := tls.Dialer{
-		Config: c.tlsConfig,
+		Config:    c.tlsConfig,
+		NetDialer: buildDialer(c.dnsServer),
 	}
+	dialer.NetDialer.Timeout = c.timeout
 	conn, err := dialer.DialContext(c.ctx, c.serverNet, c.serverAddr)
 	if err != nil {
 		return nil, errors.Wrap(err, "failed to connect to server")
