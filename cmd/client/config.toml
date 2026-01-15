@@ -19,3 +19,6 @@
 
 [forward]
   buffer_size = 4096
+
+[android]
+  dns_server = "1.0.0.1:53"
