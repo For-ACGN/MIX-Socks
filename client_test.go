@@ -34,8 +34,6 @@ func testBuildClientConfig() *ClientConfig {
 	config.Server.RootCA = "testdata/root_ca.pem"
 	config.Front.Network = "tcp"
 	config.Front.Address = "127.0.0.1:2020"
-	config.Front.Username = testProxyUsername
-	config.Front.Password = testProxyPassword
 	return &config
 }
 
