@@ -74,7 +74,7 @@ func (c *Client) httpProxyFailedToAuth(conn net.Conn) {
 	resp.ProtoMajor = 1
 	resp.ProtoMinor = 1
 	resp.Header = make(http.Header)
-	resp.Header.Set("Proxy-Authenticate", "Basic realm=\"Proxy\"")
+	resp.Header.Set("Proxy-Authenticate", "Basic realm=\"MIX-Socks\"")
 	_ = resp.Write(conn)
 }
 
