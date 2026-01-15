@@ -66,6 +66,10 @@ type ClientConfig struct {
 	Forward struct {
 		BufferSize int `toml:"buffer_size"`
 	} `toml:"forward"`
+
+	Android struct {
+		DNSServer string `toml:"dns_server"`
+	} `toml:"android"`
 } // #nosec
 
 // duration is patch for toml v2.
