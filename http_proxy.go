@@ -22,7 +22,7 @@ func (c *Client) serveHTTPRequest(conn net.Conn, reader *bufio.Reader) (net.Conn
 	if req.Method == http.MethodConnect {
 		return c.serveHTTPConnect(conn, req)
 	}
-	return c.serveHTTPProxy(conn, reader, req)
+	return c.serveHTTPForward(conn, reader, req)
 }
 
 func (c *Client) httpProxyAuthenticate(conn net.Conn, req *http.Request) bool {
@@ -79,7 +79,7 @@ func (c *Client) httpProxyFailedToAuth(conn net.Conn) {
 }
 
 func (c *Client) serveHTTPConnect(conn net.Conn, req *http.Request) (net.Conn, error) {
-	tun, err := c.connect("tcp", req.URL.Host)
+	tun, err := c.connect("HTTP-Tunnel", "tcp", req.URL.Host)
 	if err != nil {
 		resp := http.Response{}
 		resp.StatusCode = http.StatusBadGateway
@@ -103,7 +103,7 @@ func (c *Client) serveHTTPConnect(conn net.Conn, req *http.Request) (net.Conn, e
 	return tun, nil
 }
 
-func (c *Client) serveHTTPProxy(conn net.Conn, rd *bufio.Reader, req *http.Request) (net.Conn, error) {
+func (c *Client) serveHTTPForward(conn net.Conn, rd *bufio.Reader, req *http.Request) (net.Conn, error) {
 	badResp := http.Response{}
 	badResp.StatusCode = http.StatusBadGateway
 	badResp.Proto = "HTTP/1.1"
@@ -116,7 +116,7 @@ func (c *Client) serveHTTPProxy(conn net.Conn, rd *bufio.Reader, req *http.Reque
 	}
 	address := net.JoinHostPort(req.URL.Host, port)
 
-	tun, err := c.connect("tcp", address)
+	tun, err := c.connect("HTTP-Forward", "tcp", address)
 	if err != nil {
 		_ = badResp.Write(conn)
 		return nil, err

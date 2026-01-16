@@ -107,7 +107,7 @@ func TestHTTPProxy_ServeHTTPConnect(t *testing.T) {
 	})
 }
 
-func TestHTTPProxy_ServeHTTPProxy(t *testing.T) {
+func TestHTTPProxy_ServeHTTPForward(t *testing.T) {
 	t.Run("common", func(t *testing.T) {
 		defer func() {
 			testRemoveClientLogFile(t)
