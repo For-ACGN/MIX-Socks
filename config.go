@@ -4,7 +4,12 @@ import (
 	"time"
 )
 
-const defaultCopyBufferSize = 4096
+const (
+	defaultMaxBufferSize = 32 * 1024
+	defaultBufferSize    = 4096
+	defaultJitterLevel   = 3
+	maximumJitterLevel   = 10
+)
 
 // ServerConfig contains configurations for proxy server.
 type ServerConfig struct {
@@ -33,9 +38,9 @@ type ServerConfig struct {
 		} `toml:"static"`
 	} `toml:"tls"`
 
-	Forward struct {
-		BufferSize int `toml:"buffer_size"`
-	} `toml:"forward"`
+	Tunnel struct {
+		MaxBufferSize int `toml:"max_buffer_size"`
+	} `toml:"tunnel"`
 }
 
 // ClientConfig contains configurations for proxy client.
@@ -63,9 +68,10 @@ type ClientConfig struct {
 		Password string `toml:"password"`
 	} `toml:"front"`
 
-	Forward struct {
-		BufferSize int `toml:"buffer_size"`
-	} `toml:"forward"`
+	Tunnel struct {
+		BufferSize  int `toml:"buffer_size"`
+		JitterLevel int `toml:"jitter_level"`
+	} `toml:"tunnel"`
 
 	Android struct {
 		DNSServer string `toml:"dns_server"`
