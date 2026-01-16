@@ -267,10 +267,10 @@ func (c *Client) handleConn(conn net.Conn) {
 	var tun net.Conn
 	switch protocol[0] {
 	case version4:
-
+		tun, err = c.serveSocks4(conn, reader)
 	case version5:
-
-	default: // HTTP tunnel or simple proxy
+		tun, err = c.serveSocks5(conn, reader)
+	default:
 		tun, err = c.serveHTTPRequest(conn, reader)
 	}
 	if err != nil {
@@ -301,7 +301,7 @@ func (c *Client) handleConn(conn net.Conn) {
 	success = true
 }
 
-func (c *Client) connect(network, address string) (net.Conn, error) {
+func (c *Client) connect(protocol, network, address string) (net.Conn, error) {
 	conn, err := c.getPreConn()
 	if err != nil {
 		return nil, err
@@ -367,6 +367,9 @@ func (c *Client) connect(network, address string) (net.Conn, error) {
 	if err != nil {
 		return nil, errors.Wrap(err, "failed to create tunnel")
 	}
+	// not append connect log to the log file
+	lg, _ := newLogger("")
+	lg.Infof("{%s} connect %s", protocol, address)
 	return tun, nil
 }
 

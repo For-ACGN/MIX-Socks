@@ -184,7 +184,7 @@ func TestClient_connect(t *testing.T) {
 
 	transport := http.Transport{
 		DialContext: func(_ context.Context, net, addr string) (net.Conn, error) {
-			return client.connect(net, addr)
+			return client.connect("test", net, addr)
 		},
 	}
 	httpClient := http.Client{
