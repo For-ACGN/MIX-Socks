@@ -3,9 +3,11 @@ package msocks
 import (
 	"bufio"
 	"crypto/subtle"
+	"encoding/binary"
 	"fmt"
 	"io"
 	"net"
+	"strconv"
 
 	"github.com/pkg/errors"
 )
@@ -18,9 +20,8 @@ const (
 	version5 = 0x05
 
 	// authenticate method
-	v5NotRequired         = 0x00
-	v5UsernamePassword    = 0x02
-	v5NoAcceptableMethods = 0xFF
+	v5NotRequired      = 0x00
+	v5UsernamePassword = 0x02
 
 	// authenticate
 	v5UsernamePasswordVersion = 0x01
@@ -31,7 +32,7 @@ const (
 	v5NoReserve = 0x01
 
 	// command
-	v5Connect = 0x01
+	v5CmdConnect = 0x01
 
 	// address type
 	v5AddrTypeIPv4 = 0x01
@@ -77,7 +78,23 @@ func (c *Client) serveSocks5(conn net.Conn, reader *bufio.Reader) (net.Conn, err
 	if !c.socks5Authenticate(conn, reader) {
 		return nil, errors.New("failed to authenticate")
 	}
-	return nil, nil
+	target := c.receiveConnectTarget(conn, reader)
+	if target == "" {
+		return nil, errors.New("failed to receive connect target")
+	}
+	// connect target
+	tun, err := c.connect("SOCKSv5", "tcp", target)
+	if err != nil {
+		_, _ = conn.Write(v5ReplyConnectRefused)
+		return nil, errors.Wrap(err, "failed to connect target")
+	}
+	// write reply
+	_, err = conn.Write(v5ReplySucceeded)
+	if err != nil {
+		_ = tun.Close()
+		return nil, errors.Wrap(err, "failed to write reply")
+	}
+	return tun, nil
 }
 
 func (c *Client) socks5Authenticate(conn net.Conn, reader *bufio.Reader) bool {
@@ -164,4 +181,75 @@ func (c *Client) socks5Authenticate(conn net.Conn, reader *bufio.Reader) bool {
 		return false
 	}
 	return true
+}
+
+func (c *Client) receiveConnectTarget(conn net.Conn, reader *bufio.Reader) string {
+	buf := make([]byte, 4+net.IPv4len+2) // 4 + 4(ipv4) + 2(port)
+	_, err := io.ReadFull(reader, buf[:4])
+	if err != nil {
+		c.logger.Error("failed to read version cmd address type:", err)
+		return ""
+	}
+	if buf[0] != version5 {
+		c.logger.Error("unexpected socks5 version")
+		return ""
+	}
+	if buf[1] != v5CmdConnect {
+		c.logger.Error("unknown command:", buf[1])
+		_, _ = conn.Write([]byte{version5, v5CmdNotSupport, v5Reserve})
+		return ""
+	}
+	if buf[2] != v5Reserve { // reserve
+		c.logger.Warning("non-zero reserved field")
+		_, _ = conn.Write([]byte{version5, v5NoReserve, v5Reserve})
+		return ""
+	}
+	// read host
+	var host string
+	switch buf[3] {
+	case v5AddrTypeIPv4:
+		_, err = io.ReadFull(reader, buf[:net.IPv4len])
+		if err != nil {
+			c.logger.Error("failed to read IPv4 address:", err)
+			return ""
+		}
+		host = net.IP(buf[:net.IPv4len]).String()
+	case v5AddrTypeIPv6:
+		buf = make([]byte, net.IPv6len)
+		_, err = io.ReadFull(reader, buf[:net.IPv6len])
+		if err != nil {
+			c.logger.Error("failed to read IPv6 address:", err)
+			return ""
+		}
+		host = net.IP(buf[:net.IPv6len]).String()
+	case v5AddrTypeFQDN:
+		// get FQDN length
+		_, err = io.ReadFull(reader, buf[:1])
+		if err != nil {
+			c.logger.Error("failed to read FQDN length:", err)
+			return ""
+		}
+		l := int(buf[0])
+		if l > len(buf) {
+			buf = make([]byte, l)
+		}
+		_, err = io.ReadFull(reader, buf[:l])
+		if err != nil {
+			c.logger.Error("failed to read FQDN:", err)
+			return ""
+		}
+		host = string(buf[:l])
+	default:
+		c.logger.Error("invalid address type:", buf[3])
+		_, _ = conn.Write(v5ReplyAddrNotSupport)
+		return ""
+	}
+	// get port
+	_, err = io.ReadFull(reader, buf[:2])
+	if err != nil {
+		c.logger.Error("failed to read port:", err)
+		return ""
+	}
+	port := binary.BigEndian.Uint16(buf[:2])
+	return net.JoinHostPort(host, strconv.Itoa(int(port)))
 }
