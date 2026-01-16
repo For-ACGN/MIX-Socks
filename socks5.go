@@ -2,6 +2,8 @@ package msocks
 
 import (
 	"bufio"
+	"crypto/subtle"
+	"fmt"
 	"io"
 	"net"
 
@@ -56,5 +58,110 @@ func (c *Client) serveSocks5(conn net.Conn, reader *bufio.Reader) (net.Conn, err
 	if err != nil {
 		return nil, errors.Wrap(err, "failed to read socks5 version")
 	}
+	// read authentication methods, but ignore them
+	_, err = io.ReadFull(reader, buf[:1])
+	if err != nil {
+		return nil, errors.Wrap(err, "failed to read the number of the authentication methods")
+	}
+	l := int(buf[0])
+	if l == 0 {
+		return nil, errors.Wrap(err, "no authentication method")
+	}
+	if l > len(buf) {
+		buf = make([]byte, l)
+	}
+	_, err = io.ReadFull(reader, buf[:l])
+	if err != nil {
+		return nil, errors.Wrap(err, "failed to read authentication methods")
+	}
+	if !c.socks5Authenticate(conn, reader) {
+		return nil, errors.New("failed to authenticate")
+	}
 	return nil, nil
+}
+
+func (c *Client) socks5Authenticate(conn net.Conn, reader *bufio.Reader) bool {
+	if c.frontUsername == "" && c.frontPassword == "" {
+		_, err := conn.Write([]byte{version5, v5NotRequired})
+		if err != nil {
+			c.logger.Error("failed to write authentication reply:", err)
+			return false
+		}
+		return true
+	}
+	_, err := conn.Write([]byte{version5, v5UsernamePassword})
+	if err != nil {
+		c.logger.Error("failed to write authentication methods:", err)
+		return false
+	}
+	buf := make([]byte, 16)
+	// read username and password version
+	_, err = io.ReadFull(reader, buf[:1])
+	if err != nil {
+		c.logger.Error("failed to read username password version:", err)
+		return false
+	}
+	if buf[0] != v5UsernamePasswordVersion {
+		c.logger.Error("unexpected username password version")
+		return false
+	}
+	// read username length
+	_, err = io.ReadFull(reader, buf[:1])
+	if err != nil {
+		c.logger.Error("failed to read username length:", err)
+		return false
+	}
+	l := int(buf[0])
+	if l > len(buf) {
+		buf = make([]byte, l)
+	}
+	// read username
+	_, err = io.ReadFull(reader, buf[:l])
+	if err != nil {
+		c.logger.Error("failed to read username:", err)
+		return false
+	}
+	username := make([]byte, l)
+	copy(username, buf[:l])
+	// read password length
+	_, err = io.ReadFull(reader, buf[:1])
+	if err != nil {
+		c.logger.Error("failed to read password length:", err)
+		return false
+	}
+	l = int(buf[0])
+	if l > len(buf) {
+		buf = make([]byte, l)
+	}
+	// read password
+	_, err = io.ReadFull(reader, buf[:l])
+	if err != nil {
+		c.logger.Error("failed to read password:", err)
+		return false
+	}
+	password := make([]byte, l)
+	copy(password, buf[:l])
+	// write username password version
+	_, err = conn.Write([]byte{v5UsernamePasswordVersion})
+	if err != nil {
+		c.logger.Error("failed to write username password version:", err)
+		return false
+	}
+	// compare username and password
+	eUser := []byte(c.frontUsername)
+	ePass := []byte(c.frontPassword)
+	userErr := subtle.ConstantTimeCompare(username, eUser) != 1
+	passErr := subtle.ConstantTimeCompare(password, ePass) != 1
+	if userErr || passErr {
+		userInfo := fmt.Sprintf("%s:%s", username, password)
+		c.logger.Warning("invalid username or password:", userInfo)
+		_, _ = conn.Write([]byte{v5StatusFailed})
+		return false
+	}
+	_, err = conn.Write([]byte{v5StatusSucceeded})
+	if err != nil {
+		c.logger.Error("failed to write authentication reply:", err)
+		return false
+	}
+	return true
 }
