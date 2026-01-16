@@ -108,5 +108,104 @@ func TestSOCKS5_ServeSOCKS5(t *testing.T) {
 }
 
 func TestSOCKS5_Authenticate(t *testing.T) {
+	t.Run("common", func(t *testing.T) {
+		defer func() {
+			testRemoveClientLogFile(t)
+			testRemoveServerLogFile(t)
+		}()
 
+		serverCfg := testBuildServerConfig()
+		server, err := NewServer(context.Background(), serverCfg)
+		require.NoError(t, err)
+		require.NotNil(t, server)
+		go func() {
+			err := server.Serve()
+			require.NoError(t, err)
+		}()
+
+		clientCfg := testBuildClientConfig()
+		clientCfg.Front.Username = testProxyUsername
+		clientCfg.Front.Password = testProxyPassword
+
+		client, err := NewClient(clientCfg)
+		require.NoError(t, err)
+		require.NotNil(t, client)
+
+		go func() {
+			err := client.Serve()
+			require.NoError(t, err)
+		}()
+
+		transport := http.Transport{
+			Proxy: func(_ *http.Request) (*url.URL, error) {
+				format := "socks5://%s:%s@127.0.0.1:2020/"
+				URL := fmt.Sprintf(format, testProxyUsername, testProxyPassword)
+				return url.Parse(URL)
+			},
+		}
+		httpClient := http.Client{
+			Transport: &transport,
+		}
+		resp, err := httpClient.Get("https://github.com/")
+		require.NoError(t, err)
+		data, err := io.ReadAll(resp.Body)
+		require.NoError(t, err)
+		fmt.Println(len(data))
+		fmt.Println(string(data))
+
+		err = client.Close()
+		require.NoError(t, err)
+
+		err = server.Close()
+		require.NoError(t, err)
+	})
+
+	t.Run("failed to authenticate", func(t *testing.T) {
+		defer func() {
+			testRemoveClientLogFile(t)
+			testRemoveServerLogFile(t)
+		}()
+
+		serverCfg := testBuildServerConfig()
+		server, err := NewServer(context.Background(), serverCfg)
+		require.NoError(t, err)
+		require.NotNil(t, server)
+		go func() {
+			err := server.Serve()
+			require.NoError(t, err)
+		}()
+
+		clientCfg := testBuildClientConfig()
+		clientCfg.Front.Username = testProxyUsername
+		clientCfg.Front.Password = testProxyPassword
+
+		client, err := NewClient(clientCfg)
+		require.NoError(t, err)
+		require.NotNil(t, client)
+
+		go func() {
+			err := client.Serve()
+			require.NoError(t, err)
+		}()
+
+		transport := http.Transport{
+			Proxy: func(_ *http.Request) (*url.URL, error) {
+				format := "socks5://%s:%s@127.0.0.1:2020/"
+				URL := fmt.Sprintf(format, "invalid_user", "invalid_pass")
+				return url.Parse(URL)
+			},
+		}
+		httpClient := http.Client{
+			Transport: &transport,
+		}
+		resp, err := httpClient.Get("https://github.com/")
+		require.ErrorContains(t, err, "authentication failed")
+		require.Nil(t, resp)
+
+		err = client.Close()
+		require.NoError(t, err)
+
+		err = server.Close()
+		require.NoError(t, err)
+	})
 }
