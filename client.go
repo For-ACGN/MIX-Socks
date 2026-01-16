@@ -14,6 +14,7 @@ import (
 	"net/http"
 	"os"
 	"runtime"
+	"strconv"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -36,6 +37,7 @@ type Client struct {
 	timeout    time.Duration
 	preConns   int
 	bufferSize int
+	jitLevel   int
 	dnsServer  string
 
 	serverNet  string
@@ -73,9 +75,16 @@ func NewClient(config *ClientConfig) (*Client, error) {
 	if preConns < 1 {
 		preConns = defaultPreConns
 	}
-	bufferSize := config.Forward.BufferSize
+	bufferSize := config.Tunnel.BufferSize
 	if bufferSize < 1 {
-		bufferSize = defaultCopyBufferSize
+		bufferSize = defaultBufferSize
+	}
+	jitLevel := config.Tunnel.JitterLevel
+	if jitLevel < 1 {
+		jitLevel = defaultJitterLevel
+	}
+	if jitLevel > maximumJitterLevel {
+		return nil, errors.Errorf("jitter level must be between 1 and %d", maximumJitterLevel)
 	}
 	// prepare tls config for client
 	tlsConfig := &tls.Config{}
@@ -122,6 +131,7 @@ func NewClient(config *ClientConfig) (*Client, error) {
 		timeout:    timeout,
 		preConns:   preConns,
 		bufferSize: bufferSize,
+		jitLevel:   jitLevel,
 		dnsServer:  dnsServer,
 
 		serverNet:  config.Server.Network,
@@ -267,9 +277,9 @@ func (c *Client) handleConn(conn net.Conn) {
 	var tun net.Conn
 	switch protocol[0] {
 	case version4:
-		tun, err = c.serveSocks4(conn, reader)
+		tun, err = c.serveSOCKS4(conn, reader)
 	case version5:
-		tun, err = c.serveSocks5(conn, reader)
+		tun, err = c.serveSOCKS5(conn, reader)
 	default:
 		tun, err = c.serveHTTPRequest(conn, reader)
 	}
@@ -327,9 +337,11 @@ func (c *Client) connect(protocol, network, address string) (net.Conn, error) {
 	header := req.Header
 	header.Set("Pass-Hash", c.passHash)
 	header.Set("Public-Key", hex.EncodeToString(clientPub))
-	header.Set("Obfuscation", hex.EncodeToString(garbage))
 	header.Set("Network", network)
 	header.Set("Address", address)
+	header.Set("Buffer-Size", strconv.Itoa(c.bufferSize))
+	header.Set("Jitter-Level", strconv.Itoa(c.jitLevel))
+	header.Set("Obfuscation", hex.EncodeToString(garbage))
 	err = req.Write(conn)
 	if err != nil {
 		return nil, errors.Wrap(err, "failed to send request for connect")
@@ -363,7 +375,7 @@ func (c *Client) connect(protocol, network, address string) (net.Conn, error) {
 	// clear deadline that connector set
 	_ = conn.SetDeadline(time.Time{})
 	// create crypto tunnel
-	tun, err := newTunnel(newBufConn(conn, reader), sessionKey)
+	tun, err := newTunnel(newBufConn(conn, reader), sessionKey, c.jitLevel)
 	if err != nil {
 		return nil, errors.Wrap(err, "failed to create tunnel")
 	}
