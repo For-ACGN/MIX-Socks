@@ -10,6 +10,7 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"strconv"
 	"time"
 
 	"github.com/For-ACGN/autocert"
@@ -37,7 +38,7 @@ type Server struct {
 
 	passHash   string
 	timeout    time.Duration
-	bufferSize int
+	maxBufSize int
 
 	listener net.Listener
 	server   *http.Server
@@ -65,9 +66,9 @@ func NewServer(ctx context.Context, config *ServerConfig) (*Server, error) {
 	if maxConns < 1 {
 		maxConns = defaultMaxConns
 	}
-	bufferSize := config.Forward.BufferSize
-	if bufferSize < 1 {
-		bufferSize = defaultCopyBufferSize
+	maxBufSize := config.Tunnel.MaxBufferSize
+	if maxBufSize < 1 {
+		maxBufSize = defaultMaxBufferSize
 	}
 	network := config.HTTP.Network
 	address := config.HTTP.Address
@@ -113,7 +114,7 @@ func NewServer(ctx context.Context, config *ServerConfig) (*Server, error) {
 
 		passHash:   passHash,
 		timeout:    timeout,
-		bufferSize: bufferSize,
+		maxBufSize: maxBufSize,
 
 		listener: listener,
 		server:   &srv,
@@ -250,19 +251,32 @@ func (s *Server) handleConnect(w http.ResponseWriter, r *http.Request) {
 	_ = conn.SetDeadline(time.Time{})
 
 	// start forward connection data
-	tun, err := newTunnel(conn, sessionKey)
+	bufferSize, err := strconv.Atoi(r.Header.Get("Buffer-Size"))
+	if err != nil {
+		s.logger.Errorf("invalid buffer size from %s: %s", r.RemoteAddr, err)
+		return
+	}
+	if bufferSize > s.maxBufSize {
+		bufferSize = s.maxBufSize
+	}
+	jitterLevel, err := strconv.Atoi(r.Header.Get("Jitter-Level"))
+	if err != nil {
+		s.logger.Errorf("invalid jitter level from %s: %s", r.RemoteAddr, err)
+		return
+	}
+	tun, err := newTunnel(conn, sessionKey, jitterLevel)
 	if err != nil {
 		s.logger.Error("failed to create tunnel:", err)
 		return
 	}
 	go func() {
 		defer func() { _ = target.Close() }()
-		buffer := make([]byte, s.bufferSize)
+		buffer := make([]byte, bufferSize)
 		_, _ = io.CopyBuffer(target, tun, buffer)
 	}()
 	go func() {
 		defer func() { _ = tun.Close() }()
-		buffer := make([]byte, s.bufferSize)
+		buffer := make([]byte, bufferSize)
 		_, _ = io.CopyBuffer(tun, target, buffer)
 	}()
 	success = true
