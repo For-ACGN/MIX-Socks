@@ -21,6 +21,7 @@ type tunnel struct {
 
 	key []byte
 	iv  []byte
+	jit int
 
 	isHandshake  bool
 	handshakeErr error
@@ -32,7 +33,7 @@ type tunnel struct {
 	reader cipher.Stream
 }
 
-func newTunnel(conn net.Conn, key []byte) (net.Conn, error) {
+func newTunnel(conn net.Conn, key []byte, jitter int) (net.Conn, error) {
 	block, err := aes.NewCipher(key)
 	if err != nil {
 		return nil, err
@@ -42,11 +43,18 @@ func newTunnel(conn net.Conn, key []byte) (net.Conn, error) {
 	if err != nil {
 		return nil, err
 	}
+	if jitter == 0 {
+		jitter = defaultJitterLevel
+	}
+	if jitter < 1 || jitter > maximumJitterLevel {
+		return nil, errors.Errorf("jitter level must be between 1 and %d", maximumJitterLevel)
+	}
 	tun := tunnel{
 		Conn:  conn,
 		block: block,
 		key:   key,
 		iv:    iv,
+		jit:   jitter,
 	}
 	return &tun, nil
 }
@@ -138,15 +146,13 @@ func (t *tunnel) Write(b []byte) (int, error) {
 	buf := make([]byte, len(b))
 	t.writer.XORKeyStream(buf, b)
 	t.writeCtr++
-	if t.writeCtr < 32 {
+	if t.writeCtr < 64 {
 		return t.writeSegment(buf)
 	}
-	switch buf[0] % 10 {
-	case 0:
+	if t.jit > int(buf[0]%maximumJitterLevel) {
 		return t.writeSegment(buf)
-	default:
-		return t.Conn.Write(buf)
 	}
+	return t.Conn.Write(buf)
 }
 
 func (t *tunnel) writeSegment(b []byte) (int, error) {
