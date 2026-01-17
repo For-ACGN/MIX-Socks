@@ -183,6 +183,8 @@ func (s *Server) handleConnect(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusForbidden)
 		return
 	}
+
+	// try to hijack connection
 	var success bool
 	hijacker, ok := w.(http.Hijacker)
 	if !ok {
@@ -214,6 +216,21 @@ func (s *Server) handleConnect(w http.ResponseWriter, r *http.Request) {
 	// append garbage data
 	garbage := make([]byte, 256+newMathRand().Intn(16*1024))
 	header.Set("Obfuscation", hex.EncodeToString(garbage))
+
+	// process argument about tunnel
+	bufferSize, err := strconv.Atoi(r.Header.Get("Buffer-Size"))
+	if err != nil {
+		s.logger.Errorf("invalid buffer size from %s: %s", r.RemoteAddr, err)
+		return
+	}
+	if bufferSize > s.maxBufSize {
+		bufferSize = s.maxBufSize
+	}
+	jitterLevel, err := strconv.Atoi(r.Header.Get("Jitter-Level"))
+	if err != nil {
+		s.logger.Errorf("invalid jitter level from %s: %s", r.RemoteAddr, err)
+		return
+	}
 
 	// try to connect target
 	var connectOK bool
@@ -251,19 +268,6 @@ func (s *Server) handleConnect(w http.ResponseWriter, r *http.Request) {
 	_ = conn.SetDeadline(time.Time{})
 
 	// start forward connection data
-	bufferSize, err := strconv.Atoi(r.Header.Get("Buffer-Size"))
-	if err != nil {
-		s.logger.Errorf("invalid buffer size from %s: %s", r.RemoteAddr, err)
-		return
-	}
-	if bufferSize > s.maxBufSize {
-		bufferSize = s.maxBufSize
-	}
-	jitterLevel, err := strconv.Atoi(r.Header.Get("Jitter-Level"))
-	if err != nil {
-		s.logger.Errorf("invalid jitter level from %s: %s", r.RemoteAddr, err)
-		return
-	}
 	tun, err := newTunnel(conn, sessionKey, jitterLevel)
 	if err != nil {
 		s.logger.Error("failed to create tunnel:", err)
