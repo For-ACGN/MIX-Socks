@@ -229,7 +229,7 @@ func (c *Client) Serve() error {
 		c.wg.Add(1)
 		go c.connector()
 	}
-	c.logger.Infof("front server listening on %s", c.frontListener.Addr())
+	c.logger.Infof("front proxy server listening on %s", c.frontListener.Addr())
 	var tempDelay time.Duration
 	maxDelay := time.Second
 	for {
