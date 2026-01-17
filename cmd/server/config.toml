@@ -18,5 +18,5 @@
     cert_path = "certs/cert.pem"
     key_path  = "certs/key.pem"
 
-[forward]
-  buffer_size = 4096
+[tunnel]
+  max_buffer_size = 32768
