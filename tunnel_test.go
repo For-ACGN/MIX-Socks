@@ -25,21 +25,21 @@ func TestTunnel(t *testing.T) {
 		server, err := listener.Accept()
 		require.NoError(t, err)
 
-		s, err := newTunnel(server, key)
+		tun, err := newTunnel(server, key, 0)
 		require.NoError(t, err)
 
-		n, err := s.Write([]byte{1, 2, 3, 4})
+		n, err := tun.Write([]byte{1, 2, 3, 4})
 		require.NoError(t, err)
 		require.Equal(t, 4, n)
 
 		buf := make([]byte, 8)
-		n, err = io.ReadFull(s, buf)
+		n, err = io.ReadFull(tun, buf)
 		require.NoError(t, err)
 		require.Equal(t, 8, n)
 		expected := []byte{1, 2, 3, 4, 5, 6, 7, 8}
 		require.Equal(t, expected, buf)
 
-		err = s.Close()
+		err = tun.Close()
 		require.NoError(t, err)
 	}()
 
@@ -49,21 +49,21 @@ func TestTunnel(t *testing.T) {
 		client, err := net.Dial("tcp", listener.Addr().String())
 		require.NoError(t, err)
 
-		c, err := newTunnel(client, key)
+		tun, err := newTunnel(client, key, 0)
 		require.NoError(t, err)
 
 		buf := make([]byte, 4)
-		n, err := io.ReadFull(c, buf)
+		n, err := io.ReadFull(tun, buf)
 		require.NoError(t, err)
 		require.Equal(t, 4, n)
 		expected := []byte{1, 2, 3, 4}
 		require.Equal(t, expected, buf)
 
-		n, err = c.Write([]byte{1, 2, 3, 4, 5, 6, 7, 8})
+		n, err = tun.Write([]byte{1, 2, 3, 4, 5, 6, 7, 8})
 		require.NoError(t, err)
 		require.Equal(t, 8, n)
 
-		err = c.Close()
+		err = tun.Close()
 		require.NoError(t, err)
 	}()
 
