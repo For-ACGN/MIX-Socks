@@ -52,7 +52,7 @@ var (
 	v5ReplyAddrNotSupport = []byte{version5, v5AddrNotSupport, v5Reserve, v5AddrTypeIPv4, 0, 0, 0, 0, 0, 0}
 )
 
-func (c *Client) serveSocks5(conn net.Conn, reader *bufio.Reader) (net.Conn, error) {
+func (c *Client) serveSOCKS5(conn net.Conn, reader *bufio.Reader) (net.Conn, error) {
 	buf := make([]byte, 4)
 	// read version
 	_, err := io.ReadFull(reader, buf[:1])
@@ -83,7 +83,7 @@ func (c *Client) serveSocks5(conn net.Conn, reader *bufio.Reader) (net.Conn, err
 		return nil, errors.New("failed to receive connect target")
 	}
 	// connect target
-	tun, err := c.connect("SOCKSv5", "tcp", target)
+	tun, err := c.connect("SOCKS5", "tcp", target)
 	if err != nil {
 		_, _ = conn.Write(v5ReplyConnectRefused)
 		return nil, errors.Wrap(err, "failed to connect target")
