@@ -2,8 +2,6 @@ package msocks
 
 import (
 	"bytes"
-	"compress/flate"
-	"compress/gzip"
 	"context"
 	"crypto/rand"
 	"crypto/tls"
@@ -12,9 +10,7 @@ import (
 	"io"
 	"net"
 	"net/http"
-	"path/filepath"
 	"strconv"
-	"strings"
 	"time"
 
 	"github.com/For-ACGN/autocert"
@@ -142,44 +138,10 @@ func NewServer(ctx context.Context, config *ServerConfig) (*Server, error) {
 }
 
 func (s *Server) handleIndex(w http.ResponseWriter, r *http.Request) {
-	// prevent directory traversal
-	path := r.URL.Path
-	if path == "/" {
-		path = "/index.html"
-	}
-	if isDir(filepath.Join(s.dir, path)) {
-		w.WriteHeader(http.StatusOK)
-		return
-	}
-	// process compress
-	encoding := r.Header.Get("Accept-Encoding")
-	switch {
-	case strings.Contains(encoding, "gzip"):
-		w.Header().Set("Content-Encoding", "gzip")
-		gzw := gzip.NewWriter(w)
-		defer func() {
-			if w.Header().Get("Content-Encoding") == "gzip" {
-				_ = gzw.Close()
-			}
-		}()
-		w = &gzipResponseWriter{ResponseWriter: w, w: gzw}
-	case strings.Contains(encoding, "deflate"):
-		w.Header().Set("Content-Encoding", "deflate")
-		dw, _ := flate.NewWriter(w, flate.BestCompression)
-		defer func() {
-			if w.Header().Get("Content-Encoding") == "deflate" {
-				_ = dw.Close()
-			}
-		}()
-		w = &flateResponseWriter{ResponseWriter: w, w: dw}
-	}
-	// prevent incorrect cache
-	r.Header.Del("If-Modified-Since")
-	// process file
-	s.hfs.ServeHTTP(w, r)
+	s.handleFile(w, r)
 	// print income request
 	buf := bytes.NewBuffer(make([]byte, 0, 512))
-	_, _ = fmt.Fprintf(buf, "Remote: %s\n", r.RemoteAddr)
+	_, _ = fmt.Fprintf(buf, "Remote: %s\n", r.RemoteAddr)                  // client ip
 	_, _ = fmt.Fprintf(buf, "%s %s %s\n", r.Method, r.RequestURI, r.Proto) // header line
 	_, _ = fmt.Fprintf(buf, "Host: %s", r.Host)                            // dump host
 	// dump other header
@@ -187,6 +149,11 @@ func (s *Server) handleIndex(w http.ResponseWriter, r *http.Request) {
 		_, _ = fmt.Fprintf(buf, "\n%s: %s", k, v[0])
 	}
 	buf.WriteString("\n")
+	// print post body if exists
+	if r.ContentLength != 0 {
+		_, _ = io.CopyN(buf, r.Body, 32*1024)
+		buf.WriteString("\n")
+	}
 	s.logger.Info(buf)
 }
 
