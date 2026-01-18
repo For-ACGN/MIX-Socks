@@ -12,6 +12,7 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"net/netip"
 	"os"
 	"runtime"
 	"strconv"
@@ -316,6 +317,19 @@ func (c *Client) connect(protocol, network, address string) (net.Conn, error) {
 	if err != nil {
 		return nil, err
 	}
+	// check connection type
+	addrPort, err := netip.ParseAddrPort(conn.RemoteAddr().String())
+	if err != nil {
+		return nil, errors.Wrap(err, "failed to parse remote address")
+	}
+	addr := addrPort.Addr()
+	var ipType string
+	switch {
+	case addr.Is4():
+		ipType = "IPv4"
+	case addr.Is6():
+		ipType = "IPv6"
+	}
 	// apply timeout
 	_ = conn.SetDeadline(time.Now().Add(c.timeout))
 	// process key exchange
@@ -381,7 +395,7 @@ func (c *Client) connect(protocol, network, address string) (net.Conn, error) {
 	}
 	// not append connect log to the log file
 	lg, _ := newLogger("")
-	lg.Infof("{%s} connect %s", protocol, address)
+	lg.Infof("{%s} <%s> connect %s", protocol, ipType, address)
 	return tun, nil
 }
 
