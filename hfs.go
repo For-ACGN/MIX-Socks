@@ -23,17 +23,37 @@ func isDir(path string) bool {
 type gzipResponseWriter struct {
 	http.ResponseWriter
 	w *gzip.Writer
+
+	written bool
+	enabled bool
 }
 
 func (rw *gzipResponseWriter) Write(b []byte) (int, error) {
-	return rw.w.Write(b)
+	if !rw.written {
+		rw.enabled = rw.Header().Get("Content-Encoding") == "gzip"
+		rw.written = true
+	}
+	if rw.enabled {
+		return rw.w.Write(b)
+	}
+	return rw.ResponseWriter.Write(b)
 }
 
 type flateResponseWriter struct {
 	http.ResponseWriter
 	w *flate.Writer
+
+	written bool
+	enabled bool
 }
 
 func (rw *flateResponseWriter) Write(b []byte) (int, error) {
-	return rw.w.Write(b)
+	if !rw.written {
+		rw.enabled = rw.Header().Get("Content-Encoding") == "deflate"
+		rw.written = true
+	}
+	if rw.enabled {
+		return rw.w.Write(b)
+	}
+	return rw.ResponseWriter.Write(b)
 }
