@@ -158,14 +158,18 @@ func (s *Server) handleIndex(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Encoding", "gzip")
 		gzw := gzip.NewWriter(w)
 		defer func() {
-			_ = gzw.Close()
+			if w.Header().Get("Content-Encoding") == "gzip" {
+				_ = gzw.Close()
+			}
 		}()
 		w = &gzipResponseWriter{ResponseWriter: w, w: gzw}
 	case strings.Contains(encoding, "deflate"):
 		w.Header().Set("Content-Encoding", "deflate")
 		dw, _ := flate.NewWriter(w, flate.BestCompression)
 		defer func() {
-			_ = dw.Close()
+			if w.Header().Get("Content-Encoding") == "deflate" {
+				_ = dw.Close()
+			}
 		}()
 		w = &flateResponseWriter{ResponseWriter: w, w: dw}
 	}
@@ -176,8 +180,8 @@ func (s *Server) handleIndex(w http.ResponseWriter, r *http.Request) {
 	// print income request
 	buf := bytes.NewBuffer(make([]byte, 0, 512))
 	_, _ = fmt.Fprintf(buf, "Remote: %s\n", r.RemoteAddr)
-	_, _ = fmt.Fprintf(buf, "%s %s %s", r.Method, r.RequestURI, r.Proto) // header line
-	_, _ = fmt.Fprintf(buf, "\nHost: %s", r.Host)                        // dump host
+	_, _ = fmt.Fprintf(buf, "%s %s %s\n", r.Method, r.RequestURI, r.Proto) // header line
+	_, _ = fmt.Fprintf(buf, "Host: %s", r.Host)                            // dump host
 	// dump other header
 	for k, v := range r.Header {
 		_, _ = fmt.Fprintf(buf, "\n%s: %s", k, v[0])
