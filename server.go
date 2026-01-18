@@ -2,6 +2,8 @@ package msocks
 
 import (
 	"bytes"
+	"compress/flate"
+	"compress/gzip"
 	"context"
 	"crypto/rand"
 	"crypto/tls"
@@ -10,7 +12,9 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"path/filepath"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/For-ACGN/autocert"
@@ -39,6 +43,9 @@ type Server struct {
 	passHash   string
 	timeout    time.Duration
 	maxBufSize int
+
+	dir string
+	hfs http.Handler
 
 	listener net.Listener
 	server   *http.Server
@@ -70,11 +77,15 @@ func NewServer(ctx context.Context, config *ServerConfig) (*Server, error) {
 	if maxBufSize < 1 {
 		maxBufSize = defaultMaxBufferSize
 	}
+	webDir := config.Web.Directory
+	if !isDir(webDir) {
+		return nil, errors.New("invalid web directory")
+	}
 	network := config.HTTP.Network
 	address := config.HTTP.Address
 	listener, err := net.Listen(network, address)
 	if err != nil {
-		return nil, errors.Wrap(err, "failed to listen")
+		return nil, errors.Wrap(err, "failed to listen for http server")
 	}
 	// apply maximum connections
 	listener = netutil.LimitListener(listener, maxConns)
@@ -108,13 +119,16 @@ func NewServer(ctx context.Context, config *ServerConfig) (*Server, error) {
 	serverMux := http.NewServeMux()
 	srv := http.Server{
 		Handler: serverMux,
-	}
+	} // #nosec
 	server := Server{
 		logger: logger,
 
 		passHash:   passHash,
 		timeout:    timeout,
 		maxBufSize: maxBufSize,
+
+		dir: webDir,
+		hfs: http.FileServer(http.Dir(webDir)),
 
 		listener: listener,
 		server:   &srv,
@@ -128,9 +142,37 @@ func NewServer(ctx context.Context, config *ServerConfig) (*Server, error) {
 }
 
 func (s *Server) handleIndex(w http.ResponseWriter, r *http.Request) {
-	w.WriteHeader(http.StatusOK)
-	_, _ = w.Write([]byte("hello: "))
-	_, _ = w.Write([]byte(r.RemoteAddr))
+	// prevent directory traversal
+	path := r.URL.Path
+	if path == "/" {
+		path = "/index.html"
+	}
+	if isDir(filepath.Join(s.dir, path)) {
+		w.WriteHeader(http.StatusOK)
+		return
+	}
+	// process compress
+	encoding := r.Header.Get("Accept-Encoding")
+	switch {
+	case strings.Contains(encoding, "gzip"):
+		w.Header().Set("Content-Encoding", "gzip")
+		gzw := gzip.NewWriter(w)
+		defer func() {
+			_ = gzw.Close()
+		}()
+		w = &gzipResponseWriter{ResponseWriter: w, w: gzw}
+	case strings.Contains(encoding, "deflate"):
+		w.Header().Set("Content-Encoding", "deflate")
+		dw, _ := flate.NewWriter(w, flate.BestCompression)
+		defer func() {
+			_ = dw.Close()
+		}()
+		w = &flateResponseWriter{ResponseWriter: w, w: dw}
+	}
+	// prevent incorrect cache
+	r.Header.Del("If-Modified-Since")
+	// process file
+	s.hfs.ServeHTTP(w, r)
 	// print income request
 	buf := bytes.NewBuffer(make([]byte, 0, 512))
 	_, _ = fmt.Fprintf(buf, "Remote: %s\n", r.RemoteAddr)
