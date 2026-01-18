@@ -30,7 +30,7 @@ func main() {
 	if setCap {
 		path, err := os.Executable()
 		checkError(err)
-		cmd := exec.Command("setcap", "cap_net_bind_service=+ep", path)
+		cmd := exec.Command("setcap", "cap_net_bind_service=+ep", path) // #nosec
 		cmd.Stdout = os.Stdout
 		cmd.Stderr = os.Stderr
 		err = cmd.Run()
