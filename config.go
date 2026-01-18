@@ -41,6 +41,10 @@ type ServerConfig struct {
 	Tunnel struct {
 		MaxBufferSize int `toml:"max_buffer_size"`
 	} `toml:"tunnel"`
+
+	Web struct {
+		Directory string `toml:"directory"`
+	} `toml:"web"`
 }
 
 // ClientConfig contains configurations for proxy client.
