@@ -40,7 +40,6 @@ func (c *Client) serveSOCKS4(conn net.Conn, reader *bufio.Reader) (net.Conn, err
 	}
 	// check version
 	if buf[0] != version4 {
-		c.logger.Error("")
 		return nil, errors.New("unexpected socks4 version")
 	}
 	// check command
