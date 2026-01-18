@@ -5,7 +5,47 @@ import (
 	"compress/gzip"
 	"net/http"
 	"os"
+	"path/filepath"
+	"strings"
 )
+
+func (s *Server) handleFile(w http.ResponseWriter, r *http.Request) {
+	// prevent directory traversal
+	path := r.URL.Path
+	if path == "/" {
+		path = "/index.html"
+	}
+	if isDir(filepath.Join(s.dir, path)) {
+		w.WriteHeader(http.StatusOK)
+		return
+	}
+	// process compress
+	encoding := r.Header.Get("Accept-Encoding")
+	switch {
+	case strings.Contains(encoding, "gzip"):
+		w.Header().Set("Content-Encoding", "gzip")
+		gzw := gzip.NewWriter(w)
+		defer func() {
+			if w.Header().Get("Content-Encoding") == "gzip" {
+				_ = gzw.Close()
+			}
+		}()
+		w = &gzipResponseWriter{ResponseWriter: w, w: gzw}
+	case strings.Contains(encoding, "deflate"):
+		w.Header().Set("Content-Encoding", "deflate")
+		dw, _ := flate.NewWriter(w, flate.BestCompression)
+		defer func() {
+			if w.Header().Get("Content-Encoding") == "deflate" {
+				_ = dw.Close()
+			}
+		}()
+		w = &flateResponseWriter{ResponseWriter: w, w: dw}
+	}
+	// prevent incorrect cache
+	r.Header.Del("If-Modified-Since")
+	// process file
+	s.hfs.ServeHTTP(w, r)
+}
 
 func isDir(path string) bool {
 	file, err := os.Open(path) // #nosec
