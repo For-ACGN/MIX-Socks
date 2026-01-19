@@ -26,12 +26,16 @@ func testRemoveClientLogFile(t *testing.T) {
 }
 
 func testBuildClientConfig() *ClientConfig {
+	ca, err := os.ReadFile("testdata/root_ca.pem")
+	if err != nil {
+		panic(err)
+	}
 	config := ClientConfig{}
 	config.Common.LogPath = testClientLogFile
 	config.Common.Password = testPassword
 	config.Server.Network = "tcp"
 	config.Server.Address = "127.0.0.1:2019"
-	config.Server.RootCA = "testdata/root_ca.pem"
+	config.Server.RootCA = string(ca)
 	config.Front.Network = "tcp"
 	config.Front.Address = "127.0.0.1:2020"
 	return &config
