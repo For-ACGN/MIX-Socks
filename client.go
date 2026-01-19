@@ -226,7 +226,7 @@ func (c *Client) shuttingDown() bool {
 
 // Serve is used to start front server.
 func (c *Client) Serve() error {
-	for i := 0; i < 8; i++ {
+	for i := 0; i < 4; i++ {
 		c.wg.Add(1)
 		go c.connector()
 	}
@@ -431,16 +431,16 @@ func (c *Client) connector() {
 		// wait random time
 		var delay time.Duration
 		switch mRand.Intn(10) {
-		case 0, 1, 2, 3:
+		case 0, 1, 2:
 			delay = 0 * time.Second
-		case 4:
-			delay = 1 * time.Second
-		case 5:
-			delay = 2 * time.Second
+		case 3, 4:
+			delay = time.Duration(20+mRand.Intn(300)) * time.Millisecond
+		case 5, 6:
+			delay = time.Duration(80+mRand.Intn(900)) * time.Millisecond
 		default:
-			delay = time.Duration(mRand.Intn(250)) * time.Millisecond
+			delay = time.Duration(10+mRand.Intn(250)) * time.Millisecond
 		}
-		// pre connect
+		// preconnect
 		select {
 		case <-time.After(delay):
 			if len(c.connCh) == c.preConns {
