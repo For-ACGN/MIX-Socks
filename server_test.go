@@ -25,6 +25,7 @@ func testBuildServerConfig() *ServerConfig {
 	config.TLS.Mode = TLSModeStatic
 	config.TLS.Static.Cert = "testdata/server_cert.pem"
 	config.TLS.Static.Key = "testdata/server_key.pem"
+	config.Web.Directory = "cmd/server/web"
 	return &config
 }
 
