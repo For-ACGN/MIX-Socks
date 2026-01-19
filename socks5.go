@@ -78,7 +78,7 @@ func (c *Client) serveSOCKS5(conn net.Conn, reader *bufio.Reader) (net.Conn, err
 	if !c.socks5Authenticate(conn, reader) {
 		return nil, errors.New("failed to authenticate")
 	}
-	target := c.receiveConnectTarget(conn, reader)
+	target := c.socks5ReceiveConnectTarget(conn, reader)
 	if target == "" {
 		return nil, errors.New("failed to receive connect target")
 	}
@@ -183,7 +183,7 @@ func (c *Client) socks5Authenticate(conn net.Conn, reader *bufio.Reader) bool {
 	return true
 }
 
-func (c *Client) receiveConnectTarget(conn net.Conn, reader *bufio.Reader) string {
+func (c *Client) socks5ReceiveConnectTarget(conn net.Conn, reader *bufio.Reader) string {
 	buf := make([]byte, 4+net.IPv4len+2) // 4 + 4(ipv4) + 2(port)
 	_, err := io.ReadFull(reader, buf[:4])
 	if err != nil {
