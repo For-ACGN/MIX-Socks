@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"os/signal"
+	"runtime"
 	"time"
 
 	"github.com/pelletier/go-toml/v2"
@@ -22,12 +23,15 @@ var (
 
 func init() {
 	flag.StringVar(&cfgPath, "cfg", "config.toml", "set configuration file path")
-	flag.BoolVar(&setCap, "sc", false, "setcap cap_net_bind_service, acme mode need this")
+	flag.BoolVar(&setCap, "sc", false, "set cap_net_bind_service, ACME mode need this on Linux")
 	flag.Parse()
 }
 
 func main() {
 	if setCap {
+		if runtime.GOOS == "windows" {
+			return
+		}
 		path, err := os.Executable()
 		checkError(err)
 		cmd := exec.Command("setcap", "cap_net_bind_service=+ep", path) // #nosec
