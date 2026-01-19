@@ -111,53 +111,10 @@ func (c *Client) socks5Authenticate(conn net.Conn, reader *bufio.Reader) bool {
 		c.logger.Error("failed to write authentication methods:", err)
 		return false
 	}
-	buf := make([]byte, 16)
-	// read username and password version
-	_, err = io.ReadFull(reader, buf[:1])
-	if err != nil {
-		c.logger.Error("failed to read username password version:", err)
+	username, password, ok := c.socks5ReadCredential(reader)
+	if !ok {
 		return false
 	}
-	if buf[0] != v5UsernamePasswordVersion {
-		c.logger.Error("unexpected username password version")
-		return false
-	}
-	// read username length
-	_, err = io.ReadFull(reader, buf[:1])
-	if err != nil {
-		c.logger.Error("failed to read username length:", err)
-		return false
-	}
-	l := int(buf[0])
-	if l > len(buf) {
-		buf = make([]byte, l)
-	}
-	// read username
-	_, err = io.ReadFull(reader, buf[:l])
-	if err != nil {
-		c.logger.Error("failed to read username:", err)
-		return false
-	}
-	username := make([]byte, l)
-	copy(username, buf[:l])
-	// read password length
-	_, err = io.ReadFull(reader, buf[:1])
-	if err != nil {
-		c.logger.Error("failed to read password length:", err)
-		return false
-	}
-	l = int(buf[0])
-	if l > len(buf) {
-		buf = make([]byte, l)
-	}
-	// read password
-	_, err = io.ReadFull(reader, buf[:l])
-	if err != nil {
-		c.logger.Error("failed to read password:", err)
-		return false
-	}
-	password := make([]byte, l)
-	copy(password, buf[:l])
 	// write username password version
 	_, err = conn.Write([]byte{v5UsernamePasswordVersion})
 	if err != nil {
@@ -181,6 +138,57 @@ func (c *Client) socks5Authenticate(conn net.Conn, reader *bufio.Reader) bool {
 		return false
 	}
 	return true
+}
+
+func (c *Client) socks5ReadCredential(reader *bufio.Reader) ([]byte, []byte, bool) {
+	buf := make([]byte, 16)
+	// read username and password version
+	_, err := io.ReadFull(reader, buf[:1])
+	if err != nil {
+		c.logger.Error("failed to read username password version:", err)
+		return nil, nil, false
+	}
+	if buf[0] != v5UsernamePasswordVersion {
+		c.logger.Error("unexpected username password version")
+		return nil, nil, false
+	}
+	// read username length
+	_, err = io.ReadFull(reader, buf[:1])
+	if err != nil {
+		c.logger.Error("failed to read username length:", err)
+		return nil, nil, false
+	}
+	l := int(buf[0])
+	if l > len(buf) {
+		buf = make([]byte, l)
+	}
+	// read username
+	_, err = io.ReadFull(reader, buf[:l])
+	if err != nil {
+		c.logger.Error("failed to read username:", err)
+		return nil, nil, false
+	}
+	username := make([]byte, l)
+	copy(username, buf[:l])
+	// read password length
+	_, err = io.ReadFull(reader, buf[:1])
+	if err != nil {
+		c.logger.Error("failed to read password length:", err)
+		return nil, nil, false
+	}
+	l = int(buf[0])
+	if l > len(buf) {
+		buf = make([]byte, l)
+	}
+	// read password
+	_, err = io.ReadFull(reader, buf[:l])
+	if err != nil {
+		c.logger.Error("failed to read password:", err)
+		return nil, nil, false
+	}
+	password := make([]byte, l)
+	copy(password, buf[:l])
+	return username, password, true
 }
 
 func (c *Client) socks5ReceiveConnectTarget(conn net.Conn, reader *bufio.Reader) string {
