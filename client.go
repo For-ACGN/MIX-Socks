@@ -13,7 +13,6 @@ import (
 	"net"
 	"net/http"
 	"net/netip"
-	"os"
 	"runtime"
 	"strconv"
 	"sync"
@@ -89,13 +88,9 @@ func NewClient(config *ClientConfig) (*Client, error) {
 	}
 	// prepare tls config for client
 	tlsConfig := &tls.Config{}
-	caPath := config.Server.RootCA
-	if caPath != "" {
-		ca, err := os.ReadFile(caPath) // #nosec
-		if err != nil {
-			return nil, errors.Wrap(err, "failed to read Root CA certificate")
-		}
-		certs, err := parseCertificatesPEM(ca)
+	rootCA := config.Server.RootCA
+	if rootCA != "" {
+		certs, err := parseCertificatesPEM([]byte(rootCA))
 		if err != nil {
 			return nil, errors.Wrap(err, "failed to parse Root CA certificates")
 		}
