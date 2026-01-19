@@ -42,6 +42,14 @@ func main() {
 	err = decoder.Decode(&config)
 	checkError(err)
 
+	// read Root CA file if it exists
+	rootCA := config.Server.RootCA
+	if rootCA != "" {
+		ca, err := os.ReadFile(rootCA) // #nosec
+		checkError(err)
+		config.Server.RootCA = string(ca)
+	}
+
 	client, err := msocks.NewClient(&config)
 	checkError(err)
 
