@@ -1,6 +1,7 @@
 package msocks
 
 import (
+	"compress/flate"
 	"context"
 	"crypto/tls"
 	"crypto/x509"
@@ -37,7 +38,7 @@ func TestHFS(t *testing.T) {
 		Transport: &tr,
 	}
 
-	t.Run("common", func(t *testing.T) {
+	t.Run("gzip", func(t *testing.T) {
 		URL := "https://127.0.0.1:2019/"
 		req, err := http.NewRequest(http.MethodGet, URL, nil)
 		require.NoError(t, err)
@@ -48,6 +49,34 @@ func TestHFS(t *testing.T) {
 		data, err := io.ReadAll(resp.Body)
 		require.NoError(t, err)
 		require.Equal(t, []byte("Hello World!"), data)
+	})
+
+	t.Run("deflate", func(t *testing.T) {
+		URL := "https://127.0.0.1:2019/"
+		req, err := http.NewRequest(http.MethodGet, URL, nil)
+		require.NoError(t, err)
+		req.Header.Add("Accept-Encoding", "deflate")
+
+		resp, err := client.Do(req)
+		require.NoError(t, err)
+
+		data, err := io.ReadAll(flate.NewReader(resp.Body))
+		require.NoError(t, err)
+		require.Equal(t, []byte("Hello World!"), data)
+	})
+
+	t.Run("not found", func(t *testing.T) {
+		URL := "https://127.0.0.1:2019/invalid"
+		req, err := http.NewRequest(http.MethodGet, URL, nil)
+		require.NoError(t, err)
+
+		resp, err := client.Do(req)
+		require.NoError(t, err)
+
+		require.Equal(t, http.StatusNotFound, resp.StatusCode)
+		data, err := io.ReadAll(resp.Body)
+		require.NoError(t, err)
+		require.Equal(t, []byte("404 page not found\n"), data)
 	})
 
 	err = server.Close()
