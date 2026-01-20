@@ -93,7 +93,7 @@ func NewServer(ctx context.Context, config *ServerConfig) (*Server, error) {
 				NextProtos: nextProtos,
 			},
 		}
-		listener, err = autocert.NewListener(ctx, listener, network, &cfg)
+		listener, err = autocert.NewListener(ctx, listener, &cfg)
 		if err != nil {
 			return nil, err
 		}
