@@ -1,1 +1,1 @@
-go build -trimpath -ldflags "-s -w" -o mix-socks.exe
+go build -v -trimpath -ldflags "-s -w" -o mix-socks.exe
