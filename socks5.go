@@ -20,8 +20,9 @@ const (
 	version5 = 0x05
 
 	// authenticate method
-	v5NotRequired      = 0x00
-	v5UsernamePassword = 0x02
+	v5NotRequired         = 0x00
+	v5UsernamePassword    = 0x02
+	v5NoAcceptableMethods = 0xFF
 
 	// authenticate
 	v5UsernamePasswordVersion = 0x01
@@ -53,27 +54,15 @@ var (
 )
 
 func (c *Client) serveSOCKS5(conn net.Conn, reader *bufio.Reader) (net.Conn, error) {
-	buf := make([]byte, 4)
-	// read version
-	_, err := io.ReadFull(reader, buf[:1])
+	buf := make([]byte, 1)
+	// read socks5 version
+	_, err := io.ReadFull(reader, buf)
 	if err != nil {
 		return nil, errors.Wrap(err, "failed to read socks5 version")
 	}
-	// read authentication methods, but ignore them
-	_, err = io.ReadFull(reader, buf[:1])
+	err = c.socks5NegotiateAuthMethod(conn, reader)
 	if err != nil {
-		return nil, errors.Wrap(err, "failed to read the number of the authentication methods")
-	}
-	l := int(buf[0])
-	if l == 0 {
-		return nil, errors.Wrap(err, "no authentication method")
-	}
-	if l > len(buf) {
-		buf = make([]byte, l)
-	}
-	_, err = io.ReadFull(reader, buf[:l])
-	if err != nil {
-		return nil, errors.Wrap(err, "failed to read authentication methods")
+		return nil, err
 	}
 	if !c.socks5Authenticate(conn, reader) {
 		return nil, errors.New("failed to authenticate")
@@ -95,6 +84,46 @@ func (c *Client) serveSOCKS5(conn net.Conn, reader *bufio.Reader) (net.Conn, err
 		return nil, errors.Wrap(err, "failed to write reply")
 	}
 	return tun, nil
+}
+
+func (c *Client) socks5NegotiateAuthMethod(conn net.Conn, reader *bufio.Reader) error {
+	buf := make([]byte, 4)
+	_, err := io.ReadFull(reader, buf[:1])
+	if err != nil {
+		return errors.Wrap(err, "failed to read the number of the authentication methods")
+	}
+	l := int(buf[0])
+	if l == 0 {
+		return errors.Wrap(err, "no authentication method")
+	}
+	if l > len(buf) {
+		buf = make([]byte, l)
+	}
+	_, err = io.ReadFull(reader, buf[:l])
+	if err != nil {
+		return errors.Wrap(err, "failed to read authentication methods")
+	}
+	if c.frontUsername == "" && c.frontPassword == "" {
+		if !c.socks5HasAuthMethod(buf[:l], v5NotRequired) {
+			_, _ = conn.Write([]byte{version5, v5NoAcceptableMethods})
+			return errors.New("no acceptable authentication methods")
+		}
+	} else {
+		if !c.socks5HasAuthMethod(buf[:l], v5UsernamePassword) {
+			_, _ = conn.Write([]byte{version5, v5NoAcceptableMethods})
+			return errors.New("no acceptable authentication methods")
+		}
+	}
+	return nil
+}
+
+func (c *Client) socks5HasAuthMethod(methods []byte, method byte) bool {
+	for _, m := range methods {
+		if m == method {
+			return true
+		}
+	}
+	return false
 }
 
 func (c *Client) socks5Authenticate(conn net.Conn, reader *bufio.Reader) bool {
