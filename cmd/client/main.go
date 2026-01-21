@@ -6,8 +6,10 @@ import (
 	"encoding/hex"
 	"flag"
 	"fmt"
+	"log"
 	"os"
 	"os/signal"
+	"time"
 
 	"github.com/pelletier/go-toml/v2"
 
@@ -50,11 +52,19 @@ func main() {
 		config.Server.RootCA = string(ca)
 	}
 
+	// create client from config
 	client, err := msocks.NewClient(&config)
 	checkError(err)
 
+	// client.Login() will use 3-RTT, the time is similar as
+	// connect latency when connect a target with HTTPS(TLS 1.3)
+	now := time.Now()
 	err = client.Login()
 	checkError(err)
+	latency := time.Since(now).Milliseconds()
+	logger := log.New(os.Stdout, "", log.LstdFlags)
+	logger.Printf("[info] connect latency: %dms\n", latency)
+
 	go func() {
 		err := client.Serve()
 		checkError(err)
