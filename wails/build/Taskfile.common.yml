@@ -1,0 +1,75 @@
+version: '3'
+
+tasks:
+  go:mod:tidy:
+    summary: Runs `go mod tidy`
+    internal: true
+    generates:
+      - go.sum
+    sources:
+      - go.mod
+    cmds:
+      - go mod tidy
+
+  install:ui:deps:
+    summary: Install ui dependencies
+    dir: ui
+    sources:
+      - package.json
+      - package-lock.json
+    generates:
+      - node_modules/*
+    preconditions:
+      - sh: npm version
+        msg: "Looks like npm isn't installed. Npm is part of the Node installer: https://nodejs.org/en/download/"
+    cmds:
+      - npm install
+
+  build:ui:
+    summary: Build the ui project
+    dir: ui
+    sources:
+      - "**/*"
+    generates:
+      - dist/*
+    deps:
+      - task: install:ui:deps
+      - task: generate:bindings
+    cmds:
+      - npm run build -q
+
+  generate:bindings:
+    summary: Generates bindings for the ui
+    sources:
+      - "**/*.go"
+      - go.mod
+      - go.sum
+    generates:
+      - "ui/bindings/**/*"
+    cmds:
+      - wails3 generate bindings -d ui/bindings -f '{{.BUILD_FLAGS}}'{{if .UseTypescript}} -ts{{end}}
+
+  generate:icons:
+    summary: Generates Windows `.ico` and Mac `.icns` files from an image
+    dir: build
+    sources:
+      - "appicon.png"
+    generates:
+      - "icons.icns"
+      - "icons.ico"
+    cmds:
+      - wails3 generate icons -input appicon.png
+
+  dev:ui:
+    summary: Runs the ui in development mode
+    dir: ui
+    deps:
+      - task: install:ui:deps
+    cmds:
+      - npm run dev -- --port {{.VITE_PORT}} --strictPort
+
+  update:build-assets:
+    summary: Updates the build assets
+    dir: build
+    cmds:
+      - wails3 update build-assets -name "{{.APP_NAME}}" -binaryname "{{.APP_NAME}}" -config config.yml -dir .
