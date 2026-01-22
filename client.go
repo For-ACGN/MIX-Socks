@@ -15,10 +15,12 @@ import (
 	"net/netip"
 	"runtime"
 	"strconv"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
 
+	"github.com/dustin/go-humanize"
 	"github.com/pkg/errors"
 	"golang.org/x/crypto/curve25519"
 )
@@ -270,7 +272,7 @@ func (c *Client) handleConn(conn net.Conn) {
 	if err != nil {
 		return
 	}
-	var tun net.Conn
+	var tun *tunnel
 	switch protocol[0] {
 	case version4:
 		tun, err = c.serveSOCKS4(conn, reader)
@@ -295,19 +297,41 @@ func (c *Client) handleConn(conn net.Conn) {
 
 	// start forward connection data
 	go func() {
-		defer func() { _ = conn.Close() }()
-		buffer := make([]byte, c.bufferSize)
-		_, _ = io.CopyBuffer(conn, tun, buffer)
-	}()
-	go func() {
-		defer func() { _ = tun.Close() }()
-		buffer := make([]byte, c.bufferSize)
-		_, _ = io.CopyBuffer(tun, conn, buffer)
+		// not append connect log to the log file
+		lg, _ := newLogger("")
+		lg.Infof("{%s} <%s> connect %s", tun.Protocol, tun.IPType, tun.Address)
+
+		var (
+			numSend int64
+			numRecv int64
+		)
+		wg := sync.WaitGroup{}
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			defer func() { _ = conn.Close() }()
+			buffer := make([]byte, c.bufferSize)
+			numRecv, _ = io.CopyBuffer(conn, tun, buffer)
+		}()
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			defer func() { _ = tun.Close() }()
+			buffer := make([]byte, c.bufferSize)
+			numSend, _ = io.CopyBuffer(tun, conn, buffer)
+		}()
+		wg.Wait()
+
+		lg.Infof(
+			"{%s} <%s> disconnect %s (%s/%s)", tun.Protocol, tun.IPType, tun.Address,
+			strings.ReplaceAll(humanize.IBytes(uint64(numSend)), "i", ""),
+			strings.ReplaceAll(humanize.IBytes(uint64(numRecv)), "i", ""),
+		)
 	}()
 	success = true
 }
 
-func (c *Client) connect(protocol, network, address string) (net.Conn, error) {
+func (c *Client) connect(protocol, network, address string) (*tunnel, error) {
 	conn, err := c.getPreConn()
 	if err != nil {
 		return nil, err
@@ -388,9 +412,10 @@ func (c *Client) connect(protocol, network, address string) (net.Conn, error) {
 	if err != nil {
 		return nil, errors.Wrap(err, "failed to create tunnel")
 	}
-	// not append connect log to the log file
-	lg, _ := newLogger("")
-	lg.Infof("{%s} <%s> connect %s", protocol, ipType, address)
+	// record context data
+	tun.Protocol = protocol
+	tun.IPType = ipType
+	tun.Address = address
 	return tun, nil
 }
 
