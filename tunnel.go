@@ -31,9 +31,14 @@ type tunnel struct {
 
 	writer cipher.Stream
 	reader cipher.Stream
+
+	// context data
+	Protocol string
+	IPType   string
+	Address  string
 }
 
-func newTunnel(conn net.Conn, key []byte, jitter int) (net.Conn, error) {
+func newTunnel(conn net.Conn, key []byte, jitter int) (*tunnel, error) {
 	block, err := aes.NewCipher(key)
 	if err != nil {
 		return nil, err
