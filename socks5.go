@@ -53,7 +53,7 @@ var (
 	v5ReplyAddrNotSupport = []byte{version5, v5AddrNotSupport, v5Reserve, v5AddrTypeIPv4, 0, 0, 0, 0, 0, 0}
 )
 
-func (c *Client) serveSOCKS5(conn net.Conn, reader *bufio.Reader) (net.Conn, error) {
+func (c *Client) serveSOCKS5(conn net.Conn, reader *bufio.Reader) (*tunnel, error) {
 	buf := make([]byte, 1)
 	// read socks5 version
 	_, err := io.ReadFull(reader, buf)

@@ -30,7 +30,7 @@ var (
 	v4ReplyInvalidID = []byte{0x00, v4InvalidID, 0, 0, 0, 0, 0, 0}
 )
 
-func (c *Client) serveSOCKS4(conn net.Conn, reader *bufio.Reader) (net.Conn, error) {
+func (c *Client) serveSOCKS4(conn net.Conn, reader *bufio.Reader) (*tunnel, error) {
 	// 10 = version(1) + cmd(1) + port(2) + address(4) + 2 x NULL(2) maybe
 	// 16 = domain name
 	buf := make([]byte, 10+16) // prepare
