@@ -11,7 +11,7 @@ import (
 	"strings"
 )
 
-func (c *Client) serveHTTPRequest(conn net.Conn, reader *bufio.Reader) (net.Conn, error) {
+func (c *Client) serveHTTPRequest(conn net.Conn, reader *bufio.Reader) (*tunnel, error) {
 	req, err := http.ReadRequest(reader)
 	if err != nil {
 		return nil, err
@@ -22,7 +22,8 @@ func (c *Client) serveHTTPRequest(conn net.Conn, reader *bufio.Reader) (net.Conn
 	if req.Method == http.MethodConnect {
 		return c.serveHTTPConnect(conn, req)
 	}
-	return c.serveHTTPForward(conn, reader, req)
+	err = c.serveHTTPForward(conn, reader, req)
+	return nil, err
 }
 
 func (c *Client) httpProxyAuthenticate(conn net.Conn, req *http.Request) bool {
@@ -78,7 +79,7 @@ func (c *Client) httpProxyFailedToAuth(conn net.Conn) {
 	_ = resp.Write(conn)
 }
 
-func (c *Client) serveHTTPConnect(conn net.Conn, req *http.Request) (net.Conn, error) {
+func (c *Client) serveHTTPConnect(conn net.Conn, req *http.Request) (*tunnel, error) {
 	tun, err := c.connect("HTTP-Tunnel", "tcp", req.URL.Host)
 	if err != nil {
 		resp := http.Response{}
@@ -103,7 +104,7 @@ func (c *Client) serveHTTPConnect(conn net.Conn, req *http.Request) (net.Conn, e
 	return tun, nil
 }
 
-func (c *Client) serveHTTPForward(conn net.Conn, rd *bufio.Reader, req *http.Request) (net.Conn, error) {
+func (c *Client) serveHTTPForward(conn net.Conn, rd *bufio.Reader, req *http.Request) error {
 	badResp := http.Response{}
 	badResp.StatusCode = http.StatusBadGateway
 	badResp.Proto = "HTTP/1.1"
@@ -119,7 +120,7 @@ func (c *Client) serveHTTPForward(conn net.Conn, rd *bufio.Reader, req *http.Req
 	tun, err := c.connect("HTTP-Forward", "tcp", address)
 	if err != nil {
 		_ = badResp.Write(conn)
-		return nil, err
+		return err
 	}
 	defer func() { _ = tun.Close() }()
 
@@ -129,20 +130,20 @@ func (c *Client) serveHTTPForward(conn net.Conn, rd *bufio.Reader, req *http.Req
 		err = req.Write(tun)
 		if err != nil {
 			_ = badResp.Write(conn)
-			return nil, err
+			return err
 		}
 		resp, err := http.ReadResponse(tunBuf, req)
 		if err != nil {
 			_ = badResp.Write(conn)
-			return nil, err
+			return err
 		}
 		err = resp.Write(conn)
 		if err != nil {
-			return nil, nil
+			return nil
 		}
 		req, err = http.ReadRequest(rd)
 		if err != nil {
-			return nil, nil
+			return nil
 		}
 	}
 }
