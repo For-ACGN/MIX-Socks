@@ -8,7 +8,7 @@ tasks:
     summary: Builds the application for Windows
     deps:
       - task: common:go:mod:tidy
-      - task: common:build:ui
+      - task: common:build:webui
       - task: common:generate:icons
       - task: generate:syso
     cmds:
@@ -22,7 +22,7 @@ tasks:
     env:
       GOOS: windows
       CGO_ENABLED: 0
-      GOARCH: '{{.ARCH | default ARCH}}'
+      GOARCH:     '{{.ARCH | default ARCH}}'
       PRODUCTION: '{{.PRODUCTION | default "false"}}'
 
   package:
@@ -40,15 +40,12 @@ tasks:
 
   create:nsis:installer:
     summary: Creates an NSIS installer
-    dir: build/nsis
     deps:
       - task: build
         vars:
           PRODUCTION: "true"
-    cmds:
-      - makensis -DARG_WAILS_{{.ARG_FLAG}}_BINARY="{{.ROOT_DIR}}\{{.BIN_DIR}}\{{.APP_NAME}}.exe" project.nsi
     vars:
-      ARCH: '{{.ARCH | default ARCH}}'
+      ARCH:     '{{.ARCH | default ARCH}}'
       ARG_FLAG: '{{if eq .ARCH "amd64"}}AMD64{{else}}ARM64{{end}}'
 
   run:
