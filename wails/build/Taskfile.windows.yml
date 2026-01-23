@@ -27,8 +27,13 @@ tasks:
 
   package:
     summary: Packages a production build of the application into a `.exe` bundle
-    cmds:
-      - task: create:nsis:installer
+    deps:
+      - task: build
+        vars:
+          PRODUCTION: "true"
+    vars:
+      ARCH:     '{{.ARCH | default ARCH}}'
+      ARG_FLAG: '{{if eq .ARCH "amd64"}}AMD64{{else}}ARM64{{end}}'
 
   generate:syso:
     summary: Generates Windows `.syso` file
@@ -37,16 +42,6 @@ tasks:
       - wails3 generate syso -arch {{.ARCH}} -icon icon.ico -manifest wails.exe.manifest -info info.json -out ../wails_windows_{{.ARCH}}.syso
     vars:
       ARCH: '{{.ARCH | default ARCH}}'
-
-  create:nsis:installer:
-    summary: Creates an NSIS installer
-    deps:
-      - task: build
-        vars:
-          PRODUCTION: "true"
-    vars:
-      ARCH:     '{{.ARCH | default ARCH}}'
-      ARG_FLAG: '{{if eq .ARCH "amd64"}}AMD64{{else}}ARM64{{end}}'
 
   run:
     cmds:
