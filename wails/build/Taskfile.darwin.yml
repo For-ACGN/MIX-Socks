@@ -8,7 +8,7 @@ tasks:
     summary: Creates a production build of the application
     deps:
       - task: common:go:mod:tidy
-      - task: common:build:ui
+      - task: common:build:webui
       - task: common:generate:icons
     cmds:
       - go build {{.BUILD_FLAGS}} -o {{.BIN_DIR}}/{{.APP_NAME}}
@@ -17,11 +17,11 @@ tasks:
     env:
       GOOS: darwin
       CGO_ENABLED: 1
-      GOARCH: '{{.ARCH | default ARCH}}'
-      CGO_CFLAGS: "-mmacosx-version-min=10.15"
-      CGO_LDFLAGS: "-mmacosx-version-min=10.15"
-      MACOSX_DEPLOYMENT_TARGET: "10.15"
-      PRODUCTION: '{{.PRODUCTION | default "false"}}'
+      GOARCH:      '{{.ARCH | default ARCH}}'
+      CGO_CFLAGS:  '-mmacosx-version-min=10.15'
+      CGO_LDFLAGS: '-mmacosx-version-min=10.15'
+      PRODUCTION:  '{{.PRODUCTION | default "false"}}'
+      MACOSX_DEPLOYMENT_TARGET: '10.15'
 
   package:
     summary: Packages a production build of the application into a `.app` bundle
