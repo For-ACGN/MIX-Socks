@@ -7,9 +7,9 @@ includes:
   linux:   ./build/Taskfile.linux.yml
 
 vars:
-  APP_NAME: "MIX-Socks"
-  BIN_DIR: "bin"
-  VITE_PORT: '{{.WAILS_VITE_PORT | default 9245}}'
+  APP_NAME:  "MIX-Socks"
+  BIN_DIR:   "bin"
+  VITE_PORT: "{{.WAILS_VITE_PORT | default 9245}}"
 
 tasks:
   build:
