@@ -1,4 +1,4 @@
-module ui
+module webui
 
 go 1.25.0
 
