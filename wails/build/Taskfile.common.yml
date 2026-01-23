@@ -11,9 +11,9 @@ tasks:
     cmds:
       - go mod tidy
 
-  install:ui:deps:
-    summary: Install ui dependencies
-    dir: ui
+  install:webui:deps:
+    summary: Install webui dependencies
+    dir: webui
     sources:
       - package.json
       - package-lock.json
@@ -25,29 +25,29 @@ tasks:
     cmds:
       - npm install
 
-  build:ui:
-    summary: Build the ui project
-    dir: ui
+  build:webui:
+    summary: Build the webui project
+    dir: webui
     sources:
       - "**/*"
     generates:
       - dist/*
     deps:
-      - task: install:ui:deps
+      - task: install:webui:deps
       - task: generate:bindings
     cmds:
       - npm run build -q
 
   generate:bindings:
-    summary: Generates bindings for the ui
+    summary: Generates bindings for the webui
     sources:
       - "**/*.go"
       - go.mod
       - go.sum
     generates:
-      - "ui/bindings/**/*"
+      - "webui/bindings/**/*"
     cmds:
-      - wails3 generate bindings -d ui/bindings -f '{{.BUILD_FLAGS}}'{{if .UseTypescript}} -ts{{end}}
+      - wails3 generate bindings -d webui/bindings -f '{{.BUILD_FLAGS}}'{{if .UseTypescript}} -ts{{end}}
 
   generate:icons:
     summary: Generates Windows `.ico` and Mac `.icns` files from an image
@@ -60,11 +60,11 @@ tasks:
     cmds:
       - wails3 generate icons -input appicon.png
 
-  dev:ui:
-    summary: Runs the ui in development mode
-    dir: ui
+  dev:webui:
+    summary: Runs the webui in development mode
+    dir: webui
     deps:
-      - task: install:ui:deps
+      - task: install:webui:deps
     cmds:
       - npm run dev -- --port {{.VITE_PORT}} --strictPort
 
