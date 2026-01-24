@@ -8,6 +8,7 @@ import (
 	"io"
 	"net"
 	"sync"
+	"time"
 
 	"github.com/pkg/errors"
 )
@@ -33,6 +34,7 @@ type tunnel struct {
 	reader cipher.Stream
 
 	// context data
+	Elapsed  time.Duration
 	Protocol string
 	IPType   string
 	Address  string
