@@ -297,9 +297,12 @@ func (c *Client) handleConn(conn net.Conn) {
 
 	// start forward connection data
 	go func() {
-		// not append connect log to the log file
+		// not append connection history to the log file
 		lg, _ := newLogger("")
-		lg.Infof("{%s} <%s> connect %s", tun.Protocol, tun.IPType, tun.Address)
+		lg.Infof(
+			"{%s} <%s> connect %s (%dms)", tun.Protocol, tun.IPType, tun.Address,
+			tun.Elapsed.Milliseconds(),
+		)
 
 		var (
 			numSend int64
@@ -332,6 +335,8 @@ func (c *Client) handleConn(conn net.Conn) {
 }
 
 func (c *Client) connect(protocol, network, address string) (*tunnel, error) {
+	now := time.Now()
+	// get connection from preconnect
 	conn, err := c.getPreConn()
 	if err != nil {
 		return nil, err
@@ -413,6 +418,7 @@ func (c *Client) connect(protocol, network, address string) (*tunnel, error) {
 		return nil, errors.Wrap(err, "failed to create tunnel")
 	}
 	// record context data
+	tun.Elapsed = time.Since(now)
 	tun.Protocol = protocol
 	tun.IPType = ipType
 	tun.Address = address
