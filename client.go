@@ -53,6 +53,11 @@ type Client struct {
 
 	connCh chan net.Conn
 
+	numConns  int64
+	numSend   int64
+	numRecv   int64
+	counterMu sync.Mutex
+
 	inShutdown atomic.Bool
 
 	ctx    context.Context
@@ -330,6 +335,13 @@ func (c *Client) handleConn(conn net.Conn) {
 			strings.ReplaceAll(humanize.IBytes(uint64(numSend)), "i", ""),
 			strings.ReplaceAll(humanize.IBytes(uint64(numRecv)), "i", ""),
 		)
+
+		// update status
+		c.counterMu.Lock()
+		defer c.counterMu.Unlock()
+		c.numConns++
+		c.numSend += numSend
+		c.numRecv += numRecv
 	}()
 	success = true
 }
@@ -536,6 +548,11 @@ func (c *Client) preconnect() (net.Conn, error) {
 // Close is used to close front server.
 func (c *Client) Close() error {
 	c.inShutdown.Store(true)
+	c.logger.Infof(
+		"total connection: %d, total traffic: (%s/%s)", c.numConns,
+		strings.ReplaceAll(humanize.IBytes(uint64(c.numSend)), "i", ""),
+		strings.ReplaceAll(humanize.IBytes(uint64(c.numRecv)), "i", ""),
+	)
 	c.logger.Info("close connectors")
 	c.cancel()
 	c.wg.Wait()
