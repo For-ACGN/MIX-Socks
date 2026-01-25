@@ -287,7 +287,16 @@ func (c *Client) handleConn(conn net.Conn) {
 		tun, err = c.serveHTTPRequest(conn, reader)
 	}
 	if err != nil {
-		c.logger.Warningf("failed to create tunnel: %s", err)
+		// not append error that contain private data to the log file
+		errStr := err.Error()
+		switch {
+		case strings.Contains(errStr, "no such host"):
+		default:
+			c.logger.Warningf("failed to create tunnel: %s", err)
+			return
+		}
+		lg, _ := newLogger("")
+		lg.Warningf("failed to create tunnel: %s", err)
 		return
 	}
 
