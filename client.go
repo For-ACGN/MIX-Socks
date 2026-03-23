@@ -79,7 +79,7 @@ func NewClient(config *ClientConfig) (*Client, error) {
 		timeout = defaultClientTimeout
 	}
 	preConns := config.Client.PreConns
-	if preConns < 1 {
+	if preConns < 0 {
 		preConns = defaultPreConns
 	}
 	bufferSize := config.Tunnel.BufferSize
@@ -228,7 +228,8 @@ func (c *Client) shuttingDown() bool {
 
 // Serve is used to start front server.
 func (c *Client) Serve() error {
-	for i := 0; i < 4; i++ {
+	num := 2 + newMathRand().Intn(4)
+	for i := 0; i < num; i++ {
 		c.wg.Add(1)
 		go c.connector()
 	}
@@ -467,6 +468,9 @@ func (c *Client) connector() {
 		}
 		c.wg.Done()
 	}()
+	if c.preConns == 0 {
+		return
+	}
 	mRand := newMathRand()
 	for {
 		// check client is closed
