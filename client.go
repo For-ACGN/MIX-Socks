@@ -23,6 +23,8 @@ import (
 	"github.com/dustin/go-humanize"
 	"github.com/pkg/errors"
 	"golang.org/x/crypto/curve25519"
+
+	utls "github.com/refraction-networking/utls"
 )
 
 const (
@@ -125,7 +127,7 @@ func NewClient(config *ClientConfig) (*Client, error) {
 			DialContext:     dialContext,
 		},
 		Timeout: timeout,
-	}
+	} // TODO change it
 	client := Client{
 		logger: logger,
 
@@ -516,8 +518,11 @@ func (c *Client) connector() {
 }
 
 func (c *Client) preconnect() (net.Conn, error) {
-	dialer := tls.Dialer{
-		Config:    c.tlsConfig,
+	tlsConfig := &utls.Config{
+		RootCAs: c.tlsConfig.RootCAs,
+	}
+	dialer := utls.Dialer{
+		Config:    tlsConfig,
 		NetDialer: buildDialer(c.dnsServer),
 	}
 	dialer.NetDialer.Timeout = c.timeout
