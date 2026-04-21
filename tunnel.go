@@ -18,6 +18,7 @@ const maxObfSize = 2048
 type tunnel struct {
 	net.Conn
 
+	mRand *mathRand
 	block cipher.Block
 
 	key []byte
@@ -58,6 +59,7 @@ func newTunnel(conn net.Conn, key []byte, jitter int) (*tunnel, error) {
 	}
 	tun := tunnel{
 		Conn:  conn,
+		mRand: newMathRand(),
 		block: block,
 		key:   key,
 		iv:    iv,
@@ -163,8 +165,7 @@ func (t *tunnel) Write(b []byte) (int, error) {
 }
 
 func (t *tunnel) writeSegment(b []byte) (int, error) {
-	mRand := newMathRand()
-	numSegments := 2 + mRand.Intn(7)
+	numSegments := 2 + t.mRand.Intn(7)
 	var numWritten int
 	for i := 0; i < numSegments; i++ {
 		if i == numSegments-1 {
@@ -174,7 +175,7 @@ func (t *tunnel) writeSegment(b []byte) (int, error) {
 			}
 		} else {
 			remaining := len(b) - numWritten
-			size := mRand.Intn(len(b))
+			size := t.mRand.Intn(len(b))
 			if size > remaining {
 				size = remaining
 			}
