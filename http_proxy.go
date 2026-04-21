@@ -14,6 +14,7 @@ import (
 func (c *Client) serveHTTPRequest(conn net.Conn, reader *bufio.Reader) (*tunnel, error) {
 	req, err := http.ReadRequest(reader)
 	if err != nil {
+		c.logger.Warningf("invalid http request: %s from %s", err, conn.RemoteAddr())
 		return nil, err
 	}
 	if !c.httpProxyAuthenticate(conn, req) {
