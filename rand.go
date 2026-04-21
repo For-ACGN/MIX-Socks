@@ -7,7 +7,9 @@ import (
 	"time"
 )
 
-func newMathRand() *rand.Rand {
+type mathRand = rand.Rand
+
+func newMathRand() *mathRand {
 	buf := make([]byte, 8)
 	_, err := crand.Read(buf)
 	if err != nil {
