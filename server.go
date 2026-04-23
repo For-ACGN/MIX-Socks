@@ -30,7 +30,7 @@ const (
 	defaultServerTimeout = 15 * time.Second
 )
 
-var nextProtos = []string{"h2", "http/1.1"}
+var nextProtos = []string{"http/1.1"}
 
 // Server is a SOCKS-over-HTTPS server.
 type Server struct {
@@ -115,6 +115,9 @@ func NewServer(ctx context.Context, config *ServerConfig) (*Server, error) {
 	serverMux := http.NewServeMux()
 	srv := http.Server{
 		Handler: serverMux,
+
+		// force disable h2
+		TLSNextProto: make(map[string]func(*http.Server, *tls.Conn, http.Handler)),
 	} // #nosec
 	server := Server{
 		logger: logger,
