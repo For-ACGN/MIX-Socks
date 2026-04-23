@@ -14,7 +14,10 @@ import (
 	"github.com/pkg/errors"
 )
 
-const maxObfSize = 2048
+const (
+	maxObfDataSize = 2048
+	minSegmentSize = 64
+)
 
 type tunnel struct {
 	net.Conn
@@ -87,7 +90,7 @@ func (t *tunnel) Handshake() error {
 	// generate random size data
 	buf := make([]byte, 2)
 	_, _ = rand.Read(buf)
-	obfSize := binary.BigEndian.Uint16(buf) % maxObfSize
+	obfSize := binary.BigEndian.Uint16(buf) % maxObfDataSize
 	obf := make([]byte, 2+obfSize)
 	binary.BigEndian.PutUint16(obf[:2], obfSize)
 	_, _ = rand.Read(obf[2:])
@@ -105,7 +108,7 @@ func (t *tunnel) Handshake() error {
 		return t.handshakeErr
 	}
 	obfSize = binary.BigEndian.Uint16(buf)
-	if obfSize >= maxObfSize {
+	if obfSize >= maxObfDataSize {
 		t.handshakeErr = errors.Wrap(err, "invalid obf data size")
 		return t.handshakeErr
 	}
@@ -165,7 +168,7 @@ func (t *tunnel) Write(b []byte) (int, error) {
 	buf := make([]byte, len(b)) // TODO use sync.Pool
 	t.writer.XORKeyStream(buf, b)
 	t.writeCtr++
-	if t.writeCtr < 64 {
+	if t.writeCtr < uint64(16+t.mRand.Intn(32)) {
 		return t.writeSegment(buf)
 	}
 	if t.jit > int(buf[0]%maximumJitterLevel) {
@@ -176,7 +179,10 @@ func (t *tunnel) Write(b []byte) (int, error) {
 
 func (t *tunnel) writeSegment(b []byte) (int, error) {
 	total := len(b)
-	numSeg := 2 + t.mRand.Intn(8*t.jit)
+	if total <= minSegmentSize {
+		return t.Conn.Write(b)
+	}
+	numSeg := 2 + t.mRand.Intn(t.jit*(total/1024))
 
 	// generate split points
 	points := make([]int, numSeg-1)
@@ -193,10 +199,23 @@ func (t *tunnel) writeSegment(b []byte) (int, error) {
 		prev = p
 	}
 	sizes[numSeg-1] = total - prev
+	t.mRand.Shuffle(len(sizes), func(i, j int) {
+		sizes[i], sizes[j] = sizes[j], sizes[i]
+	})
+
+	// merge the too small segment into the previous one
+	merged := make([]int, 0, len(sizes))
+	for _, size := range sizes {
+		if len(merged) > 0 && size < minSegmentSize {
+			merged[len(merged)-1] += size
+		} else {
+			merged = append(merged, size)
+		}
+	}
 
 	// write segments
 	offset := 0
-	for _, size := range sizes {
+	for _, size := range merged {
 		_, err := t.Conn.Write(b[offset : offset+size])
 		if err != nil {
 			return 0, err
