@@ -30,7 +30,7 @@ const (
 	defaultServerTimeout = 15 * time.Second
 )
 
-var nextProtos = []string{"http/1.1"}
+var tlsNextProtos = []string{"http/1.1"}
 
 // Server is a SOCKS-over-HTTPS server.
 type Server struct {
@@ -90,7 +90,7 @@ func NewServer(ctx context.Context, config *ServerConfig) (*Server, error) {
 		cfg := autocert.Config{
 			Domains: config.TLS.ACME.Domains,
 			TLSConfig: &tls.Config{
-				NextProtos: nextProtos,
+				NextProtos: tlsNextProtos,
 			},
 		}
 		listener, err = autocert.NewListener(ctx, listener, &cfg)
@@ -105,7 +105,7 @@ func NewServer(ctx context.Context, config *ServerConfig) (*Server, error) {
 		}
 		cfg := tls.Config{
 			Certificates: []tls.Certificate{cert},
-			NextProtos:   nextProtos,
+			NextProtos:   tlsNextProtos,
 		}
 		listener = tls.NewListener(listener, &cfg)
 	default:
@@ -116,7 +116,7 @@ func NewServer(ctx context.Context, config *ServerConfig) (*Server, error) {
 	srv := http.Server{
 		Handler: serverMux,
 
-		// force disable h2
+		// prevent enable HTTP/2
 		TLSNextProto: make(map[string]func(*http.Server, *tls.Conn, http.Handler)),
 	} // #nosec
 	server := Server{
