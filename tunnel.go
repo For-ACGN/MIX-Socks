@@ -7,6 +7,7 @@ import (
 	"encoding/binary"
 	"io"
 	"net"
+	"sort"
 	"sync"
 	"time"
 
@@ -161,7 +162,7 @@ func (t *tunnel) Write(b []byte) (int, error) {
 	}
 	t.mu.Lock()
 	defer t.mu.Unlock()
-	buf := make([]byte, len(b))
+	buf := make([]byte, len(b)) // TODO use sync.Pool
 	t.writer.XORKeyStream(buf, b)
 	t.writeCtr++
 	if t.writeCtr < 64 {
@@ -174,26 +175,33 @@ func (t *tunnel) Write(b []byte) (int, error) {
 }
 
 func (t *tunnel) writeSegment(b []byte) (int, error) {
-	numSegments := 2 + t.mRand.Intn(7)
-	var numWritten int
-	for i := 0; i < numSegments; i++ {
-		if i == numSegments-1 {
-			_, err := t.Conn.Write(b[numWritten:])
-			if err != nil {
-				return 0, err
-			}
-		} else {
-			remaining := len(b) - numWritten
-			size := t.mRand.Intn(len(b))
-			if size > remaining {
-				size = remaining
-			}
-			_, err := t.Conn.Write(b[numWritten : numWritten+size])
-			if err != nil {
-				return 0, err
-			}
-			numWritten += size
-		}
+	total := len(b)
+	numSeg := 2 + t.mRand.Intn(8*t.jit)
+
+	// generate split points
+	points := make([]int, numSeg-1)
+	for i := range points {
+		points[i] = t.mRand.Intn(total)
 	}
-	return len(b), nil
+	sort.Ints(points)
+
+	// calculate the segment size
+	sizes := make([]int, numSeg)
+	prev := 0
+	for i, p := range points {
+		sizes[i] = p - prev
+		prev = p
+	}
+	sizes[numSeg-1] = total - prev
+
+	// write segments
+	offset := 0
+	for _, size := range sizes {
+		_, err := t.Conn.Write(b[offset : offset+size])
+		if err != nil {
+			return 0, err
+		}
+		offset += size
+	}
+	return total, nil
 }
