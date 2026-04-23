@@ -39,6 +39,8 @@ type tunnel struct {
 	Protocol string
 	IPType   string
 	Address  string
+
+	mu sync.Mutex
 }
 
 func newTunnel(conn net.Conn, key []byte, jitter int) (*tunnel, error) {
@@ -136,6 +138,11 @@ func (t *tunnel) Read(b []byte) (int, error) {
 	if err != nil {
 		return 0, err
 	}
+	if len(b) == 0 {
+		return 0, nil
+	}
+	t.mu.Lock()
+	defer t.mu.Unlock()
 	n, err := t.Conn.Read(b)
 	if err != nil {
 		return n, err
@@ -152,6 +159,8 @@ func (t *tunnel) Write(b []byte) (int, error) {
 	if len(b) == 0 {
 		return 0, nil
 	}
+	t.mu.Lock()
+	defer t.mu.Unlock()
 	buf := make([]byte, len(b))
 	t.writer.XORKeyStream(buf, b)
 	t.writeCtr++
