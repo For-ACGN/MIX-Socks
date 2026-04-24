@@ -19,8 +19,16 @@ const (
 	minSegmentSize = 64
 )
 
+var (
+	tlsClientHello = []byte{0x16, 0x03, 0x01}
+	tlsNextALPN    = []byte("http/1.1")
+)
+
 type tunnel struct {
 	net.Conn
+
+	clientSide bool
+	serverSide bool
 
 	mRand *mathRand
 	block cipher.Block
@@ -33,6 +41,7 @@ type tunnel struct {
 	handshakeErr error
 	handshakeMu  sync.Mutex
 
+	writeBuf []byte
 	writeCtr uint64
 
 	writer cipher.Stream
@@ -45,6 +54,24 @@ type tunnel struct {
 	Address  string
 
 	mu sync.Mutex
+}
+
+func newClientTunnel(conn net.Conn, key []byte, jitter int) (*tunnel, error) {
+	tun, err := newTunnel(conn, key, jitter)
+	if err != nil {
+		return nil, err
+	}
+	tun.clientSide = true
+	return tun, nil
+}
+
+func newServerTunnel(conn net.Conn, key []byte, jitter int) (*tunnel, error) {
+	tun, err := newTunnel(conn, key, jitter)
+	if err != nil {
+		return nil, err
+	}
+	tun.serverSide = true
+	return tun, nil
 }
 
 func newTunnel(conn net.Conn, key []byte, jitter int) (*tunnel, error) {
@@ -165,9 +192,12 @@ func (t *tunnel) Write(b []byte) (int, error) {
 	}
 	t.mu.Lock()
 	defer t.mu.Unlock()
-	buf := make([]byte, len(b)) // TODO use sync.Pool
+	// process write buffer
+	if len(t.writeBuf) < len(b) {
+		t.writeBuf = make([]byte, len(b))
+	}
+	buf := t.writeBuf[:len(b)]
 	t.writer.XORKeyStream(buf, b)
-
 	t.writeCtr++
 	if t.writeCtr < uint64(16+t.mRand.Intn(32)) {
 		return t.writeSegment(buf)
@@ -183,7 +213,6 @@ func (t *tunnel) writeSegment(b []byte) (int, error) {
 	if total <= minSegmentSize {
 		return t.Conn.Write(b)
 	}
-
 	numSeg := 2 + t.mRand.Intn(t.jit*(total/1024))
 
 	// generate split points
@@ -201,7 +230,6 @@ func (t *tunnel) writeSegment(b []byte) (int, error) {
 		prev = p
 	}
 	sizes[numSeg-1] = total - prev
-
 	// shuffle segment size
 	t.mRand.Shuffle(len(sizes), func(i, j int) {
 		sizes[i], sizes[j] = sizes[j], sizes[i]
@@ -216,7 +244,6 @@ func (t *tunnel) writeSegment(b []byte) (int, error) {
 			merged = append(merged, size)
 		}
 	}
-
 	// shuffle merged segments
 	t.mRand.Shuffle(len(merged), func(i, j int) {
 		merged[i], merged[j] = merged[j], merged[i]
