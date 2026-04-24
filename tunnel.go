@@ -167,6 +167,7 @@ func (t *tunnel) Write(b []byte) (int, error) {
 	defer t.mu.Unlock()
 	buf := make([]byte, len(b)) // TODO use sync.Pool
 	t.writer.XORKeyStream(buf, b)
+
 	t.writeCtr++
 	if t.writeCtr < uint64(16+t.mRand.Intn(32)) {
 		return t.writeSegment(buf)
@@ -182,6 +183,7 @@ func (t *tunnel) writeSegment(b []byte) (int, error) {
 	if total <= minSegmentSize {
 		return t.Conn.Write(b)
 	}
+
 	numSeg := 2 + t.mRand.Intn(t.jit*(total/1024))
 
 	// generate split points
@@ -199,6 +201,8 @@ func (t *tunnel) writeSegment(b []byte) (int, error) {
 		prev = p
 	}
 	sizes[numSeg-1] = total - prev
+
+	// shuffle segment size
 	t.mRand.Shuffle(len(sizes), func(i, j int) {
 		sizes[i], sizes[j] = sizes[j], sizes[i]
 	})
@@ -212,6 +216,11 @@ func (t *tunnel) writeSegment(b []byte) (int, error) {
 			merged = append(merged, size)
 		}
 	}
+
+	// shuffle merged segments
+	t.mRand.Shuffle(len(merged), func(i, j int) {
+		merged[i], merged[j] = merged[j], merged[i]
+	})
 
 	// write segments
 	offset := 0
