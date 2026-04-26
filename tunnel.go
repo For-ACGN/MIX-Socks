@@ -1,6 +1,7 @@
 package msocks
 
 import (
+	"bytes"
 	"crypto/aes"
 	"crypto/cipher"
 	"crypto/rand"
@@ -21,7 +22,7 @@ const (
 
 var (
 	tlsClientHello = []byte{0x16, 0x03, 0x01}
-	tlsNextALPN    = []byte("http/1.1")
+	tlsNextALPN    = []byte("\x02h2\x08http/1.1")
 )
 
 type tunnel struct {
@@ -46,6 +47,10 @@ type tunnel struct {
 
 	writer cipher.Stream
 	reader cipher.Stream
+
+	// about special control
+	sniffed bool
+	isHTTPS bool
 
 	// context data
 	Elapsed  time.Duration
@@ -192,12 +197,17 @@ func (t *tunnel) Write(b []byte) (int, error) {
 	}
 	t.mu.Lock()
 	defer t.mu.Unlock()
+	t.sniff(b)
 	// process write buffer
 	if len(t.writeBuf) < len(b) {
 		t.writeBuf = make([]byte, len(b))
 	}
 	buf := t.writeBuf[:len(b)]
 	t.writer.XORKeyStream(buf, b)
+	// special case for HTTPS
+	if t.isHTTPS {
+		return t.writeSegment(buf)
+	}
 	t.writeCtr++
 	if t.writeCtr < uint64(16+t.mRand.Intn(32)) {
 		return t.writeSegment(buf)
@@ -208,28 +218,48 @@ func (t *tunnel) Write(b []byte) (int, error) {
 	return t.Conn.Write(buf)
 }
 
+func (t *tunnel) sniff(b []byte) {
+	if t.sniffed {
+		return
+	}
+	t.sniffed = true
+	if t.clientSide {
+		if bytes.Contains(b, tlsClientHello) && bytes.Contains(b, tlsNextALPN) {
+			t.isHTTPS = true
+		}
+	}
+}
+
 func (t *tunnel) writeSegment(b []byte) (int, error) {
 	total := len(b)
 	if total <= minSegmentSize {
 		return t.Conn.Write(b)
 	}
-	numSeg := 2 + t.mRand.Intn(t.jit*(total/1024))
+
+	// prepare the number of the segments
+	var numSegments int
+	switch {
+	case t.isHTTPS:
+		numSegments = 2 + t.mRand.Intn(t.jit*2)
+	default:
+		numSegments = 2 + t.mRand.Intn(t.jit*(total/1024))
+	}
 
 	// generate split points
-	points := make([]int, numSeg-1)
+	points := make([]int, numSegments-1)
 	for i := range points {
 		points[i] = t.mRand.Intn(total)
 	}
 	sort.Ints(points)
 
 	// calculate the segment size
-	sizes := make([]int, numSeg)
+	sizes := make([]int, numSegments)
 	prev := 0
 	for i, p := range points {
 		sizes[i] = p - prev
 		prev = p
 	}
-	sizes[numSeg-1] = total - prev
+	sizes[numSegments-1] = total - prev
 	// shuffle segment size
 	t.mRand.Shuffle(len(sizes), func(i, j int) {
 		sizes[i], sizes[j] = sizes[j], sizes[i]
