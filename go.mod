@@ -13,7 +13,7 @@ require (
 	golang.org/x/crypto v0.47.0
 	golang.org/x/net v0.49.0
 
-	github.com/refraction-networking/utls v1.8.3-0.20260301010127-aa6edf4b11af
+	github.com/For-ACGN/utls v0.0.0-20260429051838-9de86df97c21
 )
 
 require (
