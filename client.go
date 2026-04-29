@@ -20,11 +20,10 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/For-ACGN/utls"
 	"github.com/dustin/go-humanize"
 	"github.com/pkg/errors"
 	"golang.org/x/crypto/curve25519"
-
-	utls "github.com/refraction-networking/utls"
 )
 
 const (
@@ -119,6 +118,9 @@ func NewClient(config *ClientConfig) (*Client, error) {
 	dialContext := func(ctx context.Context, _, address string) (net.Conn, error) {
 		dialer := buildDialer(dnsServer)
 		dialer.Timeout = timeout
+
+		// TODO send to channel for next use
+
 		return dialer.DialContext(ctx, serverNetwork, address)
 	}
 	httpClient := &http.Client{
@@ -176,7 +178,6 @@ func (c *Client) buildURL(path string) string {
 
 // Login is used to log in to server.
 func (c *Client) Login() error {
-	defer c.client.CloseIdleConnections()
 	req, err := http.NewRequestWithContext(c.ctx, http.MethodGet, c.buildURL("login"), nil)
 	if err != nil {
 		return errors.Wrap(err, "failed to create request for login")
@@ -201,7 +202,6 @@ func (c *Client) Login() error {
 
 // Logout is used to log out to server.
 func (c *Client) Logout() error {
-	defer c.client.CloseIdleConnections()
 	req, err := http.NewRequestWithContext(c.ctx, http.MethodGet, c.buildURL("logout"), nil)
 	if err != nil {
 		return errors.Wrap(err, "failed to create request for logout")
@@ -530,6 +530,7 @@ func (c *Client) preconnect() (net.Conn, error) {
 	if err != nil {
 		return nil, errors.Wrap(err, "failed to connect to server")
 	}
+
 	// apply timeout
 	_ = conn.SetDeadline(time.Now().Add(c.timeout))
 	req, err := http.NewRequestWithContext(c.ctx, http.MethodGet, c.buildURL("ping"), nil)
@@ -565,6 +566,7 @@ func (c *Client) preconnect() (net.Conn, error) {
 
 // Close is used to close front server.
 func (c *Client) Close() error {
+	c.client.CloseIdleConnections()
 	c.inShutdown.Store(true)
 	c.logger.Infof(
 		"total connection: %d, total traffic: (%s/%s)", c.numConns,
