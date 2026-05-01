@@ -4,7 +4,7 @@ go 1.25.0
 
 require (
 	github.com/dustin/go-humanize v1.0.1
-	github.com/For-ACGN/autocert v1.1.0
+	github.com/For-ACGN/autocert v1.3.0
 	github.com/For-ACGN/monkey v1.0.2
 	github.com/pelletier/go-toml/v2 v2.3.0
 	github.com/pkg/errors v0.9.1

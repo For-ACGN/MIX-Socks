@@ -1,5 +1,5 @@
-github.com/For-ACGN/autocert v1.1.0 h1:nPlitzLyCjzYY3VuYUzF0zUmILFH3ZBf40SlanCM5WU=
-github.com/For-ACGN/autocert v1.1.0/go.mod h1:gRSQzD3Q6tKWs1riGyC4+v1ES9IlrqCZGh3p7oegl98=
+github.com/For-ACGN/autocert v1.3.0 h1:EIgYdMl0pph38SUArzrTIZy+irNm8HMOiqYo2bdsERY=
+github.com/For-ACGN/autocert v1.3.0/go.mod h1:gRSQzD3Q6tKWs1riGyC4+v1ES9IlrqCZGh3p7oegl98=
 github.com/For-ACGN/monkey v1.0.2 h1:d4rdyndQ5zwvLKPAGn6BrCX55QmxHkqNPBALZEagr88=
 github.com/For-ACGN/monkey v1.0.2/go.mod h1:Ce4qQGLgM/h67I8I7WhnL/nDpzIFVSMy3rGvSSNyzMU=
 github.com/For-ACGN/utls v0.0.0-20260429051838-9de86df97c21 h1:fzukQ9gM1ivbd5QdrCpMmK8wtDY16mCcVHgRpAVMreQ=
