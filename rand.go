@@ -17,9 +17,9 @@ func newMathRand() *mathRand {
 	_, err := crand.Read(buf)
 	if err != nil {
 		hash := sha256.New()
-		binary.BigEndian.PutUint64(buf, uint64(time.Now().UnixNano()))
+		binary.BigEndian.PutUint64(buf, uint64(time.Now().UnixNano())) // #nosec G115
 		hash.Write(buf)
-		binary.BigEndian.PutUint64(buf, uint64(os.Getpid()))
+		binary.BigEndian.PutUint64(buf, uint64(os.Getpid())) // #nosec G115
 		hash.Write(buf)
 		var m runtime.MemStats
 		runtime.ReadMemStats(&m)
