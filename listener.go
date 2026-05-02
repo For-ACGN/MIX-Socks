@@ -1,7 +1,7 @@
 package msocks
 
 import (
-	"bytes"
+	"crypto/sha256"
 	"net"
 
 	"github.com/For-ACGN/utls"
@@ -12,9 +12,13 @@ type utlsListener struct {
 	cfg *utls.Config
 }
 
-func newUTLSListener(listener net.Listener, cfg *utls.Config) *utlsListener {
+func newUTLSListener(listener net.Listener, cfg *utls.Config, secret []byte) *utlsListener {
 	cfg.OnClientHelloMessage = func(hello *utls.ClientHelloMessage) error {
-		if bytes.Equal(hello.Random, bytes.Repeat([]byte{0xFF, 0x00}, 16)) {
+		h := sha256.New()
+		h.Write(hello.Random)
+		h.Write(secret)
+		digest := h.Sum(nil)
+		if digest[0] == 0x00 && digest[1] == 0x00 && digest[2]>>4 == 0x00 {
 			hello.ALPNProto = []string{"http/1.1"}
 		}
 		return nil
