@@ -28,7 +28,7 @@ const (
 
 const (
 	defaultMaxConns      = 10000
-	defaultServerTimeout = 30 * time.Second
+	defaultServerTimeout = 2 * time.Minute
 )
 
 var tlsNextProtos = []string{"h2", "http/1.1"}
@@ -101,18 +101,17 @@ func NewServer(ctx context.Context, config *ServerConfig) (*Server, error) {
 		if err != nil {
 			return nil, err
 		}
-		getCert := acl.TLSConfig().GetCertificate
 		cfg = &utls.Config{
-			GetCertificate: func(info *utls.ClientHelloInfo) (*utls.Certificate, error) {
-				hello := &tls.ClientHelloInfo{
-					ServerName:   info.ServerName,
-					CipherSuites: info.CipherSuites,
+			GetCertificate: func(hello *utls.ClientHelloInfo) (*utls.Certificate, error) {
+				h := &tls.ClientHelloInfo{
+					ServerName:   hello.ServerName,
+					CipherSuites: hello.CipherSuites,
 				}
-				cert, err := getCert(hello)
+				cert, err := acl.GetCertificate(h)
 				if err != nil {
 					return nil, err
 				}
-				return ToTLSCertificate(cert), nil
+				return toUTLSCertificate(cert), nil
 			},
 		}
 	case TLSModeStatic:
@@ -132,8 +131,10 @@ func NewServer(ctx context.Context, config *ServerConfig) (*Server, error) {
 	// create http server
 	serverMux := http.NewServeMux()
 	srv := http.Server{
-		Handler: serverMux,
-	} // #nosec
+		Handler:           serverMux,
+		ReadHeaderTimeout: timeout,
+		IdleTimeout:       timeout,
+	}
 	// explicitly enable HTTP/1.1 and HTTP/2
 	srv.Protocols = new(http.Protocols)
 	srv.Protocols.SetHTTP1(true)
@@ -273,7 +274,7 @@ func (s *Server) handleConnect(w http.ResponseWriter, r *http.Request) {
 	var connectOK bool
 	network := r.Header.Get("Network")
 	address := r.Header.Get("Address")
-	target, err := net.Dial(network, address)
+	target, err := net.Dial(network, address) // #nosec G704
 	if err != nil {
 		header.Set("Connect-Error", err.Error())
 	} else {
