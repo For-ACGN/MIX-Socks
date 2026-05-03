@@ -6,14 +6,13 @@ require (
 	github.com/dustin/go-humanize v1.0.1
 	github.com/For-ACGN/autocert v1.3.0
 	github.com/For-ACGN/monkey v1.0.2
+	github.com/For-ACGN/utls v1.0.1
 	github.com/pelletier/go-toml/v2 v2.3.1
 	github.com/pkg/errors v0.9.1
 	github.com/stretchr/testify v1.11.1
 
 	golang.org/x/crypto v0.50.0
 	golang.org/x/net v0.53.0
-
-	github.com/For-ACGN/utls v0.0.0-20260429051838-9de86df97c21
 )
 
 require (
