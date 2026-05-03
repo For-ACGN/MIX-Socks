@@ -180,7 +180,8 @@ func TestClient_DisablePreConn(t *testing.T) {
 	clientCfg.Client.PreConns = 0
 	client, err := NewClient(clientCfg)
 	require.NoError(t, err)
-	require.NotNil(t, client)
+	err = client.Login()
+	require.NoError(t, err)
 
 	go func() {
 		err := client.Serve()
