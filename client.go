@@ -5,7 +5,6 @@ import (
 	"context"
 	"crypto/rand"
 	"crypto/sha256"
-	"crypto/tls"
 	"crypto/x509"
 	"encoding/hex"
 	"fmt"
@@ -45,8 +44,7 @@ type Client struct {
 
 	serverNet  string
 	serverAddr string
-	tlsConfig  *tls.Config
-	client     *http.Client
+	tlsConfig  *utls.Config
 
 	frontUsername string
 	frontPassword string
@@ -95,7 +93,7 @@ func NewClient(config *ClientConfig) (*Client, error) {
 		return nil, errors.Errorf("jitter level must be between 1 and %d", maximumJitterLevel)
 	}
 	// prepare tls config for client
-	tlsConfig := &tls.Config{}
+	tlsConfig := &utls.Config{}
 	rootCA := config.Server.RootCA
 	if rootCA != "" {
 		certs, err := parseCertificatesPEM([]byte(rootCA))
@@ -113,23 +111,13 @@ func NewClient(config *ClientConfig) (*Client, error) {
 	if err != nil {
 		return nil, errors.Wrap(err, "failed to listen for the front server")
 	}
-	dnsServer := config.Android.DNSServer
-	serverNetwork := config.Server.Network
-	dialContext := func(ctx context.Context, _, address string) (net.Conn, error) {
-		dialer := buildDialer(dnsServer)
-		dialer.Timeout = timeout
-
-		// TODO send to channel for next use
-
-		return dialer.DialContext(ctx, serverNetwork, address)
+	// build pre connection channel
+	var connCh chan net.Conn
+	if preConns != 0 {
+		connCh = make(chan net.Conn, preConns)
+	} else {
+		connCh = make(chan net.Conn, 1)
 	}
-	httpClient := &http.Client{
-		Transport: &http.Transport{
-			TLSClientConfig: tlsConfig,
-			DialContext:     dialContext,
-		},
-		Timeout: timeout,
-	} // TODO change it
 	client := Client{
 		logger: logger,
 
@@ -139,37 +127,20 @@ func NewClient(config *ClientConfig) (*Client, error) {
 		preConns:   preConns,
 		bufferSize: bufferSize,
 		jitLevel:   jitLevel,
-		dnsServer:  dnsServer,
+		dnsServer:  config.Android.DNSServer,
 
 		serverNet:  config.Server.Network,
 		serverAddr: config.Server.Address,
 		tlsConfig:  tlsConfig,
-		client:     httpClient,
 
 		frontUsername: config.Front.Username,
 		frontPassword: config.Front.Password,
 		frontListener: listener,
 
-		connCh: make(chan net.Conn, preConns),
+		connCh: connCh,
 	}
 	client.ctx, client.cancel = context.WithCancel(context.Background())
 	return &client, nil
-}
-
-func buildDialer(dns string) *net.Dialer {
-	if runtime.GOOS != "android" {
-		return new(net.Dialer)
-	}
-	dialer := net.Dialer{
-		Timeout: 3 * time.Second,
-	}
-	resolver := &net.Resolver{
-		PreferGo: true,
-		Dial: func(ctx context.Context, network, _ string) (net.Conn, error) {
-			return dialer.DialContext(ctx, network, dns)
-		},
-	}
-	return &net.Dialer{Resolver: resolver}
 }
 
 func (c *Client) buildURL(path string) string {
@@ -178,6 +149,10 @@ func (c *Client) buildURL(path string) string {
 
 // Login is used to log in to server.
 func (c *Client) Login() error {
+	conn, err := c.dial()
+	if err != nil {
+		return err
+	}
 	req, err := http.NewRequestWithContext(c.ctx, http.MethodGet, c.buildURL("login"), nil)
 	if err != nil {
 		return errors.Wrap(err, "failed to create request for login")
@@ -186,17 +161,24 @@ func (c *Client) Login() error {
 	header := req.Header
 	header.Set("Pass-Hash", c.passHash)
 	header.Set("Obfuscation", hex.EncodeToString(garbage))
-	resp, err := c.client.Do(req)
+	err = req.Write(conn)
 	if err != nil {
-		return errors.Wrap(err, "failed to log in")
+		return errors.Wrap(err, "failed to write log in request")
 	}
-	defer func() {
-		_, _ = io.Copy(io.Discard, resp.Body)
-		_ = resp.Body.Close()
-	}()
+	resp, err := http.ReadResponse(bufio.NewReader(conn), req)
+	if err != nil {
+		return errors.Wrap(err, "failed to read response about log in")
+	}
 	if resp.StatusCode != http.StatusOK {
 		return errors.Errorf("login failed with status: %s", resp.Status)
 	}
+	_, _ = io.Copy(io.Discard, resp.Body)
+	_ = resp.Body.Close()
+	err = c.handshake(conn)
+	if err != nil {
+		return err
+	}
+
 	return nil
 }
 
@@ -437,7 +419,7 @@ func (c *Client) connect(protocol, network, address string) (*tunnel, error) {
 	// clear deadline that connector set
 	_ = conn.SetDeadline(time.Time{})
 	// create crypto tunnel
-	tun, err := newTunnel(newBufConn(conn, reader), sessionKey, c.jitLevel)
+	tun, err := newClientTunnel(newBufConn(conn, reader), sessionKey, c.jitLevel)
 	if err != nil {
 		return nil, errors.Wrap(err, "failed to create tunnel")
 	}
@@ -517,25 +499,53 @@ func (c *Client) connector() {
 	}
 }
 
-func (c *Client) preconnect() (net.Conn, error) {
-	tlsConfig := &utls.Config{
-		RootCAs: c.tlsConfig.RootCAs,
+func (c *Client) buildDialer() *net.Dialer {
+	if runtime.GOOS != "android" {
+		return new(net.Dialer)
 	}
-	dialer := utls.Dialer{
-		Config:    tlsConfig,
-		NetDialer: buildDialer(c.dnsServer),
+	dialer := net.Dialer{
+		Timeout: 3 * time.Second,
 	}
-	dialer.NetDialer.Timeout = c.timeout
+	resolver := &net.Resolver{
+		PreferGo: true,
+		Dial: func(ctx context.Context, network, _ string) (net.Conn, error) {
+			return dialer.DialContext(ctx, network, c.dnsServer)
+		},
+	}
+	return &net.Dialer{Resolver: resolver, Timeout: c.timeout}
+}
+
+func (c *Client) dial() (net.Conn, error) {
+	dialer := c.buildDialer()
 	conn, err := dialer.DialContext(c.ctx, c.serverNet, c.serverAddr)
 	if err != nil {
 		return nil, errors.Wrap(err, "failed to connect to server")
 	}
+	tlsConfig := &utls.Config{
+		RootCAs:    c.tlsConfig.RootCAs,
+		NextProtos: tlsNextProtos,
+	}
+	return utls.UClient(conn, tlsConfig, utls.HelloFirefox_Auto), nil
+}
 
+func (c *Client) preconnect() (net.Conn, error) {
+	conn, err := c.dial()
+	if err != nil {
+		return nil, err
+	}
+	err = c.handshake(conn)
+	if err != nil {
+		return nil, err
+	}
+	return conn, nil
+}
+
+func (c *Client) handshake(conn net.Conn) error {
 	// apply timeout
 	_ = conn.SetDeadline(time.Now().Add(c.timeout))
 	req, err := http.NewRequestWithContext(c.ctx, http.MethodGet, c.buildURL("ping"), nil)
 	if err != nil {
-		return nil, errors.Wrap(err, "failed to create request for preconnect")
+		return errors.Wrap(err, "failed to create request for preconnect")
 	}
 	garbage := make([]byte, 512+newMathRand().Intn(2*1024))
 	header := req.Header
@@ -543,30 +553,29 @@ func (c *Client) preconnect() (net.Conn, error) {
 	header.Set("Obfuscation", hex.EncodeToString(garbage))
 	err = req.Write(conn)
 	if err != nil {
-		return nil, errors.Wrap(err, "failed to send request for preconnect")
+		return errors.Wrap(err, "failed to send request for preconnect")
 	}
 	resp, err := http.ReadResponse(bufio.NewReader(conn), req)
 	if err != nil {
-		return nil, errors.Wrap(err, "failed to read response about preconnect")
+		return errors.Wrap(err, "failed to read response about preconnect")
 	}
 	defer func() {
 		_, _ = io.Copy(io.Discard, resp.Body)
 		_ = resp.Body.Close()
 	}()
 	if resp.StatusCode != http.StatusOK {
-		return nil, errors.Errorf("invalid response status: %s", resp.Status)
+		return errors.Errorf("invalid response status: %s", resp.Status)
 	}
 	if resp.Header.Get("Pong") != "Ping-Pong" {
-		return nil, errors.New("invalid server response about ping")
+		return errors.New("invalid server response about ping")
 	}
 	// reset deadline
 	_ = conn.SetDeadline(time.Time{})
-	return conn, nil
+	return nil
 }
 
 // Close is used to close front server.
 func (c *Client) Close() error {
-	c.client.CloseIdleConnections()
 	c.inShutdown.Store(true)
 	c.logger.Infof(
 		"total connection: %d, total traffic: (%s/%s)", c.numConns,
