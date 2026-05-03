@@ -57,10 +57,14 @@ func NewServer(ctx context.Context, config *ServerConfig) (*Server, error) {
 	}
 	passHash := config.Common.PassHash
 	if passHash == "" {
-		return nil, errors.New("must set password hash")
+		return nil, errors.New("password hash is empty")
 	}
 	if len(passHash) != 64 {
-		return nil, errors.New("invalid password hash")
+		return nil, errors.New("invalid password hash length")
+	}
+	phBin, err := hex.DecodeString(passHash)
+	if err != nil {
+		return nil, errors.Wrap(err, "invalid password hash format")
 	}
 	pathHash := passHash[:8] + passHash[32:32+8]
 	timeout := time.Duration(config.HTTP.Timeout)
@@ -127,7 +131,7 @@ func NewServer(ctx context.Context, config *ServerConfig) (*Server, error) {
 		return nil, fmt.Errorf("unknown TLS mode: %s", config.TLS.Mode)
 	}
 	cfg.NextProtos = tlsNextProtos
-	listener = newUTLSListener(listener, cfg)
+	listener = newUTLSListener(listener, cfg, phBin)
 	// create http server
 	serverMux := http.NewServeMux()
 	srv := http.Server{
