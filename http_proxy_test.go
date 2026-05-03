@@ -39,7 +39,7 @@ func TestHTTPProxy_ServeHTTPConnect(t *testing.T) {
 		}()
 
 		transport := http.Transport{
-			Proxy: func(_ *http.Request) (*url.URL, error) {
+			Proxy: func(*http.Request) (*url.URL, error) {
 				return url.Parse("http://127.0.0.1:2020/")
 			},
 		}
@@ -88,7 +88,7 @@ func TestHTTPProxy_ServeHTTPConnect(t *testing.T) {
 		}()
 
 		transport := http.Transport{
-			Proxy: func(_ *http.Request) (*url.URL, error) {
+			Proxy: func(*http.Request) (*url.URL, error) {
 				return url.Parse("http://127.0.0.1:2020/")
 			},
 		}
@@ -134,7 +134,7 @@ func TestHTTPProxy_ServeHTTPForward(t *testing.T) {
 		}()
 
 		transport := http.Transport{
-			Proxy: func(_ *http.Request) (*url.URL, error) {
+			Proxy: func(*http.Request) (*url.URL, error) {
 				return url.Parse("http://127.0.0.1:2020/")
 			},
 		}
@@ -183,7 +183,7 @@ func TestHTTPProxy_ServeHTTPForward(t *testing.T) {
 		}()
 
 		transport := http.Transport{
-			Proxy: func(_ *http.Request) (*url.URL, error) {
+			Proxy: func(*http.Request) (*url.URL, error) {
 				return url.Parse("http://127.0.0.1:2020/")
 			},
 		}
@@ -235,7 +235,7 @@ func TestHTTPProxy_Authenticate(t *testing.T) {
 		}()
 
 		transport := http.Transport{
-			Proxy: func(_ *http.Request) (*url.URL, error) {
+			Proxy: func(*http.Request) (*url.URL, error) {
 				format := "http://%s:%s@127.0.0.1:2020/"
 				URL := fmt.Sprintf(format, testProxyUsername, testProxyPassword)
 				return url.Parse(URL)
@@ -287,7 +287,7 @@ func TestHTTPProxy_Authenticate(t *testing.T) {
 		}()
 
 		transport := http.Transport{
-			Proxy: func(_ *http.Request) (*url.URL, error) {
+			Proxy: func(*http.Request) (*url.URL, error) {
 				format := "http://%s:%s@127.0.0.1:2020/"
 				URL := fmt.Sprintf(format, "invalid_user", "invalid_pass")
 				return url.Parse(URL)

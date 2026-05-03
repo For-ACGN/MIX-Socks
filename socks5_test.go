@@ -39,7 +39,7 @@ func TestSOCKS5_ServeSOCKS5(t *testing.T) {
 		}()
 
 		transport := http.Transport{
-			Proxy: func(_ *http.Request) (*url.URL, error) {
+			Proxy: func(*http.Request) (*url.URL, error) {
 				return url.Parse("socks5://127.0.0.1:2020/")
 			},
 		}
@@ -88,7 +88,7 @@ func TestSOCKS5_ServeSOCKS5(t *testing.T) {
 		}()
 
 		transport := http.Transport{
-			Proxy: func(_ *http.Request) (*url.URL, error) {
+			Proxy: func(*http.Request) (*url.URL, error) {
 				return url.Parse("socks5://127.0.0.1:2020/")
 			},
 		}
@@ -137,7 +137,7 @@ func TestSOCKS5_Authenticate(t *testing.T) {
 		}()
 
 		transport := http.Transport{
-			Proxy: func(_ *http.Request) (*url.URL, error) {
+			Proxy: func(*http.Request) (*url.URL, error) {
 				format := "socks5://%s:%s@127.0.0.1:2020/"
 				URL := fmt.Sprintf(format, testProxyUsername, testProxyPassword)
 				return url.Parse(URL)
@@ -189,7 +189,7 @@ func TestSOCKS5_Authenticate(t *testing.T) {
 		}()
 
 		transport := http.Transport{
-			Proxy: func(_ *http.Request) (*url.URL, error) {
+			Proxy: func(*http.Request) (*url.URL, error) {
 				return url.Parse("socks5://127.0.0.1:2020/")
 			},
 		}
@@ -236,7 +236,7 @@ func TestSOCKS5_Authenticate(t *testing.T) {
 		}()
 
 		transport := http.Transport{
-			Proxy: func(_ *http.Request) (*url.URL, error) {
+			Proxy: func(*http.Request) (*url.URL, error) {
 				format := "socks5://%s:%s@127.0.0.1:2020/"
 				URL := fmt.Sprintf(format, "invalid_user", "invalid_pass")
 				return url.Parse(URL)

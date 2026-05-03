@@ -140,7 +140,7 @@ func TestClient_Serve(t *testing.T) {
 	}()
 
 	transport := http.Transport{
-		Proxy: func(_ *http.Request) (*url.URL, error) {
+		Proxy: func(*http.Request) (*url.URL, error) {
 			return url.Parse("http://127.0.0.1:2020/")
 		},
 	}
@@ -188,7 +188,7 @@ func TestClient_DisablePreConn(t *testing.T) {
 	}()
 
 	transport := http.Transport{
-		Proxy: func(_ *http.Request) (*url.URL, error) {
+		Proxy: func(*http.Request) (*url.URL, error) {
 			return url.Parse("http://127.0.0.1:2020/")
 		},
 	}
