@@ -310,7 +310,7 @@ func (s *Server) handleConnect(w http.ResponseWriter, r *http.Request) {
 	_ = conn.SetDeadline(time.Time{})
 
 	// start forward connection data
-	tun, err := newTunnel(conn, sessionKey, jitterLevel)
+	tun, err := newServerTunnel(conn, sessionKey, jitterLevel)
 	if err != nil {
 		s.logger.Error("failed to create tunnel:", err)
 		return

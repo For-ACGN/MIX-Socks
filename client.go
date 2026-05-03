@@ -197,12 +197,7 @@ func (c *Client) Logout() error {
 	if err != nil {
 		return err
 	}
-	var success bool
-	defer func() {
-		if !success {
-			_ = conn.Close()
-		}
-	}()
+	defer func() { _ = conn.Close() }()
 	// build request about logout
 	req, err := http.NewRequestWithContext(c.ctx, http.MethodGet, c.buildURL("logout"), nil)
 	if err != nil {
