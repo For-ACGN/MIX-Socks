@@ -52,6 +52,7 @@ func TestDuration_UnmarshalText(t *testing.T) {
 
 		var d testDuration
 		err := toml.Unmarshal(data, &d)
-		require.EqualError(t, err, "toml: time: unknown unit \"as\" in duration \"1as\"")
+		errStr := "toml: time: unknown unit \"as\" in duration \"1as\""
+		require.EqualError(t, err, errStr)
 	})
 }
