@@ -153,6 +153,13 @@ func (c *Client) Login() error {
 	if err != nil {
 		return err
 	}
+	var success bool
+	defer func() {
+		if !success {
+			_ = conn.Close()
+		}
+	}()
+	// build request about login
 	req, err := http.NewRequestWithContext(c.ctx, http.MethodGet, c.buildURL("login"), nil)
 	if err != nil {
 		return errors.Wrap(err, "failed to create request for login")
@@ -161,6 +168,7 @@ func (c *Client) Login() error {
 	header := req.Header
 	header.Set("Pass-Hash", c.passHash)
 	header.Set("Obfuscation", hex.EncodeToString(garbage))
+	// send request and process response
 	err = req.Write(conn)
 	if err != nil {
 		return errors.Wrap(err, "failed to write log in request")
@@ -169,21 +177,33 @@ func (c *Client) Login() error {
 	if err != nil {
 		return errors.Wrap(err, "failed to read response about log in")
 	}
+	_, _ = io.Copy(io.Discard, resp.Body)
+	_ = resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
 		return errors.Errorf("login failed with status: %s", resp.Status)
 	}
-	_, _ = io.Copy(io.Discard, resp.Body)
-	_ = resp.Body.Close()
-	err = c.handshake(conn)
-	if err != nil {
-		return err
+	// send to the pre connection channel
+	select {
+	case c.connCh <- conn:
+		success = true
+	case <-c.ctx.Done():
 	}
-
 	return nil
 }
 
 // Logout is used to log out to server.
 func (c *Client) Logout() error {
+	conn, err := c.dial()
+	if err != nil {
+		return err
+	}
+	var success bool
+	defer func() {
+		if !success {
+			_ = conn.Close()
+		}
+	}()
+	// build request about logout
 	req, err := http.NewRequestWithContext(c.ctx, http.MethodGet, c.buildURL("logout"), nil)
 	if err != nil {
 		return errors.Wrap(err, "failed to create request for logout")
@@ -192,14 +212,17 @@ func (c *Client) Logout() error {
 	header := req.Header
 	header.Set("Pass-Hash", c.passHash)
 	header.Set("Obfuscation", hex.EncodeToString(garbage))
-	resp, err := c.client.Do(req)
+	// send request and process response
+	err = req.Write(conn)
 	if err != nil {
-		return errors.Wrap(err, "failed to log out")
+		return errors.Wrap(err, "failed to write log out request")
 	}
-	defer func() {
-		_, _ = io.Copy(io.Discard, resp.Body)
-		_ = resp.Body.Close()
-	}()
+	resp, err := http.ReadResponse(bufio.NewReader(conn), req)
+	if err != nil {
+		return errors.Wrap(err, "failed to read response about log out")
+	}
+	_, _ = io.Copy(io.Discard, resp.Body)
+	_ = resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
 		return errors.Errorf("logout failed with status: %s", resp.Status)
 	}
@@ -431,20 +454,6 @@ func (c *Client) connect(protocol, network, address string) (*tunnel, error) {
 	return tun, nil
 }
 
-func (c *Client) getPreConn() (net.Conn, error) {
-	// try to get connection from preconnect channel
-	select {
-	case conn := <-c.connCh:
-		return conn, nil
-	case <-c.ctx.Done():
-		return nil, c.ctx.Err()
-	default:
-	}
-	// if channel is empty(A large number of connections
-	// were used in a short period of time), connect now
-	return c.preconnect()
-}
-
 func (c *Client) connector() {
 	defer func() {
 		if r := recover(); r != nil {
@@ -499,6 +508,20 @@ func (c *Client) connector() {
 	}
 }
 
+func (c *Client) getPreConn() (net.Conn, error) {
+	// try to get connection from preconnect channel
+	select {
+	case conn := <-c.connCh:
+		return conn, nil
+	case <-c.ctx.Done():
+		return nil, c.ctx.Err()
+	default:
+	}
+	// if channel is empty(A large number of connections
+	// were used in a short period of time), connect at once
+	return c.preconnect()
+}
+
 func (c *Client) buildDialer() *net.Dialer {
 	if runtime.GOOS != "android" {
 		return new(net.Dialer)
@@ -521,7 +544,13 @@ func (c *Client) dial() (net.Conn, error) {
 	if err != nil {
 		return nil, errors.Wrap(err, "failed to connect to server")
 	}
+	colonPos := strings.LastIndex(c.serverAddr, ":")
+	if colonPos == -1 {
+		colonPos = len(c.serverAddr)
+	}
+	serverName := c.serverAddr[:colonPos]
 	tlsConfig := &utls.Config{
+		ServerName: serverName,
 		RootCAs:    c.tlsConfig.RootCAs,
 		NextProtos: tlsNextProtos,
 	}
@@ -533,19 +562,17 @@ func (c *Client) preconnect() (net.Conn, error) {
 	if err != nil {
 		return nil, err
 	}
-	err = c.handshake(conn)
-	if err != nil {
-		return nil, err
-	}
-	return conn, nil
-}
-
-func (c *Client) handshake(conn net.Conn) error {
+	var success bool
+	defer func() {
+		if !success {
+			_ = conn.Close()
+		}
+	}()
 	// apply timeout
 	_ = conn.SetDeadline(time.Now().Add(c.timeout))
 	req, err := http.NewRequestWithContext(c.ctx, http.MethodGet, c.buildURL("ping"), nil)
 	if err != nil {
-		return errors.Wrap(err, "failed to create request for preconnect")
+		return nil, errors.Wrap(err, "failed to create request for preconnect")
 	}
 	garbage := make([]byte, 512+newMathRand().Intn(2*1024))
 	header := req.Header
@@ -553,25 +580,26 @@ func (c *Client) handshake(conn net.Conn) error {
 	header.Set("Obfuscation", hex.EncodeToString(garbage))
 	err = req.Write(conn)
 	if err != nil {
-		return errors.Wrap(err, "failed to send request for preconnect")
+		return nil, errors.Wrap(err, "failed to send request for preconnect")
 	}
 	resp, err := http.ReadResponse(bufio.NewReader(conn), req)
 	if err != nil {
-		return errors.Wrap(err, "failed to read response about preconnect")
+		return nil, errors.Wrap(err, "failed to read response about preconnect")
 	}
 	defer func() {
 		_, _ = io.Copy(io.Discard, resp.Body)
 		_ = resp.Body.Close()
 	}()
 	if resp.StatusCode != http.StatusOK {
-		return errors.Errorf("invalid response status: %s", resp.Status)
+		return nil, errors.Errorf("invalid response status: %s", resp.Status)
 	}
 	if resp.Header.Get("Pong") != "Ping-Pong" {
-		return errors.New("invalid server response about ping")
+		return nil, errors.New("invalid server response about ping")
 	}
 	// reset deadline
 	_ = conn.SetDeadline(time.Time{})
-	return nil
+	success = true
+	return conn, nil
 }
 
 // Close is used to close front server.
