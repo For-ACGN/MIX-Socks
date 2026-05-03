@@ -177,8 +177,6 @@ func (t *tunnel) Read(b []byte) (int, error) {
 	if len(b) == 0 {
 		return 0, nil
 	}
-	t.mu.Lock()
-	defer t.mu.Unlock()
 	n, err := t.Conn.Read(b)
 	if err != nil {
 		return n, err
@@ -209,7 +207,7 @@ func (t *tunnel) Write(b []byte) (int, error) {
 		return t.writeSegment(buf)
 	}
 	t.writeCtr++
-	if t.writeCtr < uint64(16+t.mRand.Intn(32)) {
+	if t.writeCtr < uint64(16+t.mRand.Intn(32)) { // #nosec
 		return t.writeSegment(buf)
 	}
 	if t.jit > int(buf[0]%maximumJitterLevel) {
@@ -240,9 +238,9 @@ func (t *tunnel) writeSegment(b []byte) (int, error) {
 	var numSegments int
 	switch {
 	case t.isHTTPS:
-		numSegments = 2 + t.mRand.Intn(t.jit*2)
+		numSegments = 2 + t.mRand.Intn(1+t.jit*2)
 	default:
-		numSegments = 2 + t.mRand.Intn(t.jit*(total/1024))
+		numSegments = 2 + t.mRand.Intn(1+t.jit*(total/512))
 	}
 
 	// generate split points
